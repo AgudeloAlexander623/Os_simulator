@@ -1,5 +1,6 @@
 from queue import Queue
 from typing import Optional, TYPE_CHECKING
+import heapq
 
 if TYPE_CHECKING:
     from core.process import Process
@@ -20,3 +21,55 @@ class Scheduler:
 
     def has_processes(self) -> bool:
         return not self.queue.empty()
+
+
+class FCFSScheduler(Scheduler):
+    """First-Come, First-Served: Procesa en orden de llegada, sin quantum."""
+    def __init__(self):
+        super().__init__(quantum=0)  # No quantum
+        self.queue: Queue['Process'] = Queue()
+
+    def get_process(self) -> Optional['Process']:
+        return super().get_process()
+
+
+class SJFScheduler(Scheduler):
+    """Shortest Job First: Prioriza procesos con menor remaining_time."""
+    def __init__(self, quantum: int):
+        super().__init__(quantum)
+        self.heap = []  # (remaining_time, process)
+
+    def add_process(self, process: 'Process') -> None:
+        heapq.heappush(self.heap, (process.remaining_time, process))
+
+    def get_process(self) -> Optional['Process']:
+        if not self.heap:
+            return None
+        return heapq.heappop(self.heap)[1]
+
+    def has_processes(self) -> bool:
+        return len(self.heap) > 0
+
+
+class PriorityScheduler(Scheduler):
+    """Priority Scheduling: Prioriza por prioridad (menor número = mayor prioridad)."""
+    def __init__(self, quantum: int):
+        super().__init__(quantum)
+        self.heap = []  # (priority, process) - asumir priority en Process
+
+    def add_process(self, process: 'Process') -> None:
+        priority = getattr(process, 'priority', 0)  # Default priority
+        heapq.heappush(self.heap, (priority, process))
+
+    def get_process(self) -> Optional['Process']:
+        if not self.heap:
+            return None
+        return heapq.heappop(self.heap)[1]
+
+    def has_processes(self) -> bool:
+        return len(self.heap) > 0
+
+
+class RoundRobinScheduler(Scheduler):
+    """Round-Robin: Quantum fijo, como el original."""
+    pass

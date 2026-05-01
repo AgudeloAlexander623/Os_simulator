@@ -2,6 +2,7 @@
 
 # Scheduler
 QUANTUM = 2
+SCHEDULER_TYPE = 'round_robin'  # Opciones: 'fcfs', 'sjf', 'priority', 'round_robin'
 
 # Memoria
 MEMORY_CAPACITY = 500
