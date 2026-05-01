@@ -5,7 +5,12 @@ import utils.logger
 
 
 def main():
-    controller = SimulationController()
+    controller = SimulationController(
+        scheduler_type=config.SCHEDULER_TYPE,
+        quantum=config.QUANTUM,
+        memory_cap=config.MEMORY_CAPACITY,
+        num_cores=config.NUM_CORES
+    )
 
     # Agregar procesos
     processes = [
@@ -18,8 +23,12 @@ def main():
         controller.add_process(pid, burst, mem, pri)
 
     # Iniciar simulación
-    controller.start_simulation()
+    stats = controller.start_simulation()
 
+    logging.info(f"Procesos completados: {stats['completed']}")
+    logging.info(f"Tiempo de espera promedio: {stats['avg_waiting_time']:.2f}")
+    logging.info(f"Tiempo de turnaround promedio: {stats['avg_turnaround_time']:.2f}")
+    logging.info(f"Uso de CPU: {stats['cpu_utilization']:.2f}")
     logging.info("Simulación finalizada")
 
 

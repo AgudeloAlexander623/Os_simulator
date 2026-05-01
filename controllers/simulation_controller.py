@@ -1,3 +1,4 @@
+import logging
 import threading
 import time
 from typing import List, Callable
@@ -50,16 +51,23 @@ class SimulationController:
         process = Process(pid, burst, mem, pri)
         self.processes.append(process)
 
-    def start_simulation(self) -> None:
-        """Inicia la simulación en un thread."""
+    def start_simulation(self) -> dict:
+        """Inicia la simulación en un thread.
+
+        Returns:
+            dict: Estadísticas calculadas al final de la simulación.
+        """
         start_time = time.time()
+        loaded_processes = []
+
         # Cargar procesos
         for p in self.processes:
             try:
                 self.memory.allocate(p)
                 self.scheduler.add_process(p)
+                loaded_processes.append(p)
             except Exception as e:
-                print(f"Error al cargar proceso {p.pid}: {e}")
+                logging.warning(f"Error al cargar proceso {p.pid}: {e}")
 
         # Crear workers
         cores = [CoreWorker(self.scheduler, self.memory) for _ in range(self.num_cores)]
@@ -70,7 +78,7 @@ class SimulationController:
 
         end_time = time.time()
         total_time = end_time - start_time
-        completed_processes = [p for p in self.processes if p.completion_time != -1]
+        completed_processes = [p for p in loaded_processes if p.completion_time != -1]
         completed = len(completed_processes)
         throughput = completed / total_time if total_time > 0 else 0
 
@@ -83,7 +91,7 @@ class SimulationController:
             avg_waiting = avg_turnaround = avg_response = 0
 
         # CPU utilization (tiempo total ejecutado / tiempo total)
-        total_burst = sum(p.burst_time for p in self.processes)
+        total_burst = sum(p.burst_time for p in loaded_processes)
         cpu_utilization = total_burst / total_time if total_time > 0 else 0
 
         stats = {
@@ -97,3 +105,5 @@ class SimulationController:
         }
         if self.on_simulation_end:
             self.on_simulation_end(stats)
+
+        return stats
