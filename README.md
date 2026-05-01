@@ -27,6 +27,15 @@ Edita `utils/config.py` para cambiar quantum, scheduler, memoria, etc.
 ## Tests
 Ejecuta `python -m unittest discover test` para correr tests.
 
+## Cambios recientes
+- Refactorización MVC: la lógica de simulación ahora está en `controllers/simulation_controller.py` y la GUI solo maneja la presentación.
+- Observer pattern en `utils/observer.py` usado por `core/memory.py` para notificar cambios de memoria.
+- Mejora de `core/process.py` con docstrings, validación de datos y métricas de proceso: waiting, turnaround y response.
+- Manejo de excepciones de memoria con `MemoryInsufficientError` en `core/memory.py`.
+- Métricas de simulación ampliadas: tiempo total, throughput, espera promedio, turnaround promedio y utilización de CPU.
+- Corrección de la GUI y del entrypoint `main.py` para usar el controlador y mostrar estadísticas finales.
+- Tests unitarios actualizados y verificados con `python -m unittest discover test`.
+
 ## Mejoras futuras
 - Paginación de memoria.
 - Operaciones I/O con bloqueo de procesos.
