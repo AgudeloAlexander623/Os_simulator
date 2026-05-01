@@ -1,0 +1,99 @@
+import threading
+import time
+from typing import List, Callable
+from core.process import Process
+from core.scheduler import Scheduler, FCFSScheduler, SJFScheduler, PriorityScheduler, RoundRobinScheduler
+from core.memory import Memory
+from concurrency.worker import CoreWorker
+
+
+class SimulationController:
+    """Controlador para la lógica de simulación (MVC)."""
+
+    def __init__(self, scheduler_type: str, quantum: int, memory_cap: int, num_cores: int):
+        """Inicializa el controlador.
+
+        Args:
+            scheduler_type (str): Tipo de scheduler.
+            quantum (int): Quantum.
+            memory_cap (int): Capacidad de memoria.
+            num_cores (int): Número de cores.
+        """
+        self.scheduler = self._create_scheduler(scheduler_type, quantum)
+        self.memory = Memory(memory_cap)
+        self.num_cores = num_cores
+        self.processes: List[Process] = []
+        self.on_simulation_end: Callable[[dict], None] = None
+
+    def _create_scheduler(self, sched_type: str, quantum: int) -> Scheduler:
+        """Crea el scheduler basado en tipo."""
+        if sched_type == 'fcfs':
+            return FCFSScheduler()
+        elif sched_type == 'sjf':
+            return SJFScheduler(quantum)
+        elif sched_type == 'priority':
+            return PriorityScheduler(quantum)
+        elif sched_type == 'round_robin':
+            return RoundRobinScheduler(quantum)
+        else:
+            raise ValueError(f"Tipo de scheduler desconocido: {sched_type}")
+
+    def add_process(self, pid: int, burst: int, mem: int, pri: int = 0) -> None:
+        """Agrega un proceso.
+
+        Args:
+            pid (int): PID.
+            burst (int): Burst time.
+            mem (int): Memoria.
+            pri (int): Prioridad.
+        """
+        process = Process(pid, burst, mem, pri)
+        self.processes.append(process)
+
+    def start_simulation(self) -> None:
+        """Inicia la simulación en un thread."""
+        start_time = time.time()
+        # Cargar procesos
+        for p in self.processes:
+            try:
+                self.memory.allocate(p)
+                self.scheduler.add_process(p)
+            except Exception as e:
+                print(f"Error al cargar proceso {p.pid}: {e}")
+
+        # Crear workers
+        cores = [CoreWorker(self.scheduler, self.memory) for _ in range(self.num_cores)]
+        for core in cores:
+            core.start()
+        for core in cores:
+            core.join()
+
+        end_time = time.time()
+        total_time = end_time - start_time
+        completed_processes = [p for p in self.processes if p.completion_time != -1]
+        completed = len(completed_processes)
+        throughput = completed / total_time if total_time > 0 else 0
+
+        # Calcular métricas promedio
+        if completed_processes:
+            avg_waiting = sum(p.waiting_time for p in completed_processes) / completed
+            avg_turnaround = sum(p.turnaround_time for p in completed_processes) / completed
+            avg_response = sum(p.response_time for p in completed_processes) / completed
+        else:
+            avg_waiting = avg_turnaround = avg_response = 0
+
+        # CPU utilization (tiempo total ejecutado / tiempo total)
+        total_burst = sum(p.burst_time for p in self.processes)
+        cpu_utilization = total_burst / total_time if total_time > 0 else 0
+
+        stats = {
+            "total_time": total_time,
+            "completed": completed,
+            "throughput": throughput,
+            "avg_waiting_time": avg_waiting,
+            "avg_turnaround_time": avg_turnaround,
+            "avg_response_time": avg_response,
+            "cpu_utilization": cpu_utilization
+        }
+        if self.on_simulation_end:
+            self.on_simulation_end(stats)

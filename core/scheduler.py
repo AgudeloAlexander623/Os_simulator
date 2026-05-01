@@ -7,19 +7,41 @@ if TYPE_CHECKING:
 
 
 class Scheduler:
+    """Clase base para schedulers de procesos."""
+
     def __init__(self, quantum: int):
+        """Inicializa el scheduler.
+
+        Args:
+            quantum (int): Quantum para ejecución.
+        """
         self.quantum = quantum
         self.queue: Queue['Process'] = Queue()
 
     def add_process(self, process: 'Process') -> None:
+        """Agrega un proceso a la cola.
+
+        Args:
+            process (Process): Proceso a agregar.
+        """
         self.queue.put(process)
 
     def get_process(self) -> Optional['Process']:
+        """Obtiene el próximo proceso.
+
+        Returns:
+            Optional[Process]: Próximo proceso o None.
+        """
         if self.queue.empty():
             return None
         return self.queue.get()
 
     def has_processes(self) -> bool:
+        """Verifica si hay procesos pendientes.
+
+        Returns:
+            bool: True si hay procesos.
+        """
         return not self.queue.empty()
 
 

@@ -1,3 +1,13 @@
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+from core.process import Process
+from core.scheduler import Scheduler, FCFSScheduler, SJFScheduler, PriorityScheduler, RoundRobinScheduler
+from core.memory import Memory
+from concurrency.worker import CoreWorker
+from utils import config
+from controllers.simulation_controller import SimulationController
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 import threading
@@ -7,25 +17,7 @@ import sys
 
 # Ajustar path para imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
-from core.process import Process
-from core.scheduler import Scheduler, FCFSScheduler, SJFScheduler, PriorityScheduler, RoundRobinScheduler
-from core.memory import Memory
-from concurrency.worker import CoreWorker
-from utils import config
-
-
-def create_scheduler(sched_type: str, quantum: int) -> Scheduler:
-    if sched_type == 'fcfs':
-        return FCFSScheduler()
-    elif sched_type == 'sjf':
-        return SJFScheduler(quantum)
-    elif sched_type == 'priority':
-        return PriorityScheduler(quantum)
-    elif sched_type == 'round_robin':
-        return RoundRobinScheduler(quantum)
-    else:
-        raise ValueError(f"Tipo de scheduler desconocido: {sched_type}")
+from controllers.simulation_controller import SimulationController
 
 
 class TextHandler(logging.Handler):
@@ -55,11 +47,8 @@ class OSSimulatorGUI:
         logging.getLogger().addHandler(handler)
         logging.getLogger().setLevel(logging.INFO)
 
+        self.controller = None
         self.create_widgets()
-
-        self.scheduler = create_scheduler(config.SCHEDULER_TYPE, config.QUANTUM)
-        self.memory = Memory(capacity=config.MEMORY_CAPACITY)
-        self.processes = []
 
     def create_widgets(self):
         # Frame para controles
@@ -184,42 +173,33 @@ class OSSimulatorGUI:
         self.log_text.delete(1.0, tk.END)  # Limpiar logs
         self.stats_label.config(text="Estadísticas: Simulando...")
 
-        # Crear scheduler basado en selección
+        # Crear controller
         sched_type = self.sched_var.get()
         quantum = self.quantum_var.get()
         memory_cap = self.memory_var.get()
-        self.scheduler = create_scheduler(sched_type, quantum)
-        self.memory = Memory(capacity=memory_cap)
+        self.controller = SimulationController(sched_type, quantum, memory_cap, config.NUM_CORES)
+        self.controller.on_simulation_end = self.on_simulation_end
 
-        # Crear procesos desde la tabla
-        self.processes = []
+        # Agregar procesos desde tabla
         for item in self.tree.get_children():
             values = self.tree.item(item, 'values')
             pid, burst, mem, pri = int(values[0]), int(values[1]), int(values[2]), int(values[3])
-            self.processes.append(Process(pid, burst, mem, pri))
+            self.controller.add_process(pid, burst, mem, pri)
 
-        # Cargar en memoria y scheduler
-        for p in self.processes:
-            if self.memory.allocate(p):
-                self.scheduler.add_process(p)
-
-        # Crear workers y ejecutar en thread
-        cores = [CoreWorker(self.scheduler, self.memory) for _ in range(config.NUM_CORES)]
-        sim_thread = threading.Thread(target=self.run_simulation, args=(cores,))
+        # Iniciar simulación en thread
+        sim_thread = threading.Thread(target=self.controller.start_simulation)
         sim_thread.start()
 
-    def run_simulation(self, cores):
-        import time
-        start_time = time.time()
-        for core in cores:
-            core.start()
-        for core in cores:
-            core.join()
-        end_time = time.time()
-        total_time = end_time - start_time
-        completed = sum(1 for p in self.processes if p.state.name == 'TERMINATED')
-        throughput = completed / total_time if total_time > 0 else 0
-        self.stats_label.config(text=f"Estadísticas: Tiempo total: {total_time:.2f}s, Procesos completados: {completed}, Throughput: {throughput:.2f} proc/s")
+    def on_simulation_end(self, stats):
+        stats_text = f"""Estadísticas de Simulación:
+Tiempo total: {stats['total_time']:.2f}s
+Procesos completados: {stats['completed']}
+Throughput: {stats['throughput']:.2f} proc/s
+Tiempo de espera promedio: {stats['avg_waiting_time']:.2f} unidades
+Tiempo de turnaround promedio: {stats['avg_turnaround_time']:.2f} unidades
+Tiempo de respuesta promedio: {stats['avg_response_time']:.2f} unidades
+Utilización de CPU: {stats['cpu_utilization']:.2f}%"""
+        self.stats_label.config(text=stats_text)
         logging.info("Simulación finalizada")
         self.start_button.config(state='normal')
 

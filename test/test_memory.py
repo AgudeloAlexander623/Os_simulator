@@ -4,7 +4,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from core.memory import Memory
+from core.memory import Memory, MemoryInsufficientError
 from core.process import Process
 
 
@@ -18,7 +18,8 @@ class TestMemory(unittest.TestCase):
     def test_memory_insufficient(self):
         mem = Memory(200)
         p = Process(1, 10, 300)
-        self.assertFalse(mem.allocate(p))
+        with self.assertRaises(MemoryInsufficientError):
+            mem.allocate(p)
         self.assertEqual(mem.used, 0)
 
     def test_memory_free(self):

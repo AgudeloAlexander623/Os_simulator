@@ -1,5 +1,6 @@
 import logging
 from typing import TYPE_CHECKING
+from utils.observer import Observable
 
 if TYPE_CHECKING:
     from core.process import Process
@@ -10,7 +11,7 @@ class MemoryInsufficientError(Exception):
     pass
 
 
-class Memory:
+class Memory(Observable):
     """Gestiona la memoria del sistema OS.
 
     Atributos:
@@ -27,6 +28,7 @@ class Memory:
         Raises:
             ValueError: Si capacity es negativa.
         """
+        super().__init__()
         if capacity < 0:
             raise ValueError("Capacity debe ser no negativa")
         self.capacity = capacity
@@ -39,7 +41,7 @@ class Memory:
             process (Process): Proceso a asignar.
 
         Returns:
-            bool: True si asignado, False si insuficiente.
+            bool: True si asignado.
 
         Raises:
             MemoryInsufficientError: Si no hay espacio.
@@ -49,6 +51,7 @@ class Memory:
             raise MemoryInsufficientError(f"No hay suficiente memoria para PID={process.pid}")
         self.used += process.memory
         logging.info(f"[RAM] asignado PID={process.pid}")
+        self.notify({"type": "allocated", "process": process, "used": self.used})
         return True
 
     def free(self, process: 'Process') -> None:
@@ -59,3 +62,4 @@ class Memory:
         """
         self.used -= process.memory
         logging.info(f"[RAM] liberado PID={process.pid}")
+        self.notify({"type": "freed", "process": process, "used": self.used})
