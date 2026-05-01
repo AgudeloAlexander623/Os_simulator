@@ -1,0 +1,33 @@
+import unittest
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+from core.memory import Memory
+from core.process import Process
+
+
+class TestMemory(unittest.TestCase):
+    def test_memory_allocation(self):
+        mem = Memory(500)
+        p = Process(1, 10, 100)
+        self.assertTrue(mem.allocate(p))
+        self.assertEqual(mem.used, 100)
+
+    def test_memory_insufficient(self):
+        mem = Memory(200)
+        p = Process(1, 10, 300)
+        self.assertFalse(mem.allocate(p))
+        self.assertEqual(mem.used, 0)
+
+    def test_memory_free(self):
+        mem = Memory(500)
+        p = Process(1, 10, 100)
+        mem.allocate(p)
+        mem.free(p)
+        self.assertEqual(mem.used, 0)
+
+
+if __name__ == '__main__':
+    unittest.main()

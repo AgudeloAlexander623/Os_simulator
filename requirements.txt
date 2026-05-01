@@ -1,0 +1,2 @@
+# Dependencias para OS Simulator
+# Solo bibliotecas estándar de Python, no se requieren externas.
