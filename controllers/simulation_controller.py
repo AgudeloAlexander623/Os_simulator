@@ -90,9 +90,10 @@ class SimulationController:
         else:
             avg_waiting = avg_turnaround = avg_response = 0
 
-        # CPU utilization (tiempo total ejecutado / tiempo total)
+        # CPU utilization (tiempo total ejecutado / (tiempo total * num_cores))
         total_burst = sum(p.burst_time for p in loaded_processes)
-        cpu_utilization = total_burst / total_time if total_time > 0 else 0
+        cpu_utilization = total_burst / (total_time * self.num_cores) if total_time > 0 else 0
+        cpu_utilization = min(cpu_utilization, 1.0)  # Cap a 100%
 
         stats = {
             "total_time": total_time,

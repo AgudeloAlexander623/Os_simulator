@@ -59,7 +59,13 @@ class Memory(Observable):
 
         Args:
             process (Process): Proceso a liberar.
+
+        Raises:
+            ValueError: Si el proceso no fue asignado o doble free.
         """
+        if self.used < process.memory:
+            logging.warning(f"[RAM] intento liberar PID={process.pid} sin asignación válida")
+            raise ValueError(f"PID={process.pid} no tiene memoria asignada o ya fue liberado")
         self.used -= process.memory
         logging.info(f"[RAM] liberado PID={process.pid}")
         self.notify({"type": "freed", "process": process, "used": self.used})

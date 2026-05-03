@@ -48,8 +48,7 @@ class Scheduler:
 class FCFSScheduler(Scheduler):
     """First-Come, First-Served: Procesa en orden de llegada, sin quantum."""
     def __init__(self):
-        super().__init__(quantum=0)  # No quantum
-        self.queue: Queue['Process'] = Queue()
+        super().__init__(quantum=0)
 
     def get_process(self) -> Optional['Process']:
         return super().get_process()
@@ -62,6 +61,8 @@ class SJFScheduler(Scheduler):
         self.heap = []  # (remaining_time, process)
 
     def add_process(self, process: 'Process') -> None:
+        # Remover entrada vieja si el proceso ya está en el heap
+        self.heap = [(rt, p) for rt, p in self.heap if p.pid != process.pid]
         heapq.heappush(self.heap, (process.remaining_time, process))
 
     def get_process(self) -> Optional['Process']:

@@ -21,7 +21,10 @@ class Observable:
         Args:
             observer (Callable): Observador a remover.
         """
-        self._observers.remove(observer)
+        try:
+            self._observers.remove(observer)
+        except ValueError:
+            pass
 
     def notify(self, event: Any) -> None:
         """Notifica a todos los observadores.

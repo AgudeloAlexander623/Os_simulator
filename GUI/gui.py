@@ -1,5 +1,6 @@
 import os
 import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from core.process import Process
@@ -12,12 +13,6 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 import threading
 import logging
-import os
-import sys
-
-# Ajustar path para imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from controllers.simulation_controller import SimulationController
 
 
 class TextHandler(logging.Handler):
@@ -156,6 +151,25 @@ class OSSimulatorGUI:
                 burst = int(burst_entry.get())
                 mem = int(mem_entry.get())
                 pri = int(pri_entry.get())
+
+                if pid <= 0:
+                    messagebox.showerror("Error", "PID debe ser positivo")
+                    return
+                if burst <= 0:
+                    messagebox.showerror("Error", "Burst time debe ser positivo")
+                    return
+                if mem <= 0:
+                    messagebox.showerror("Error", "Memory debe ser positiva")
+                    return
+                if pri < 0:
+                    messagebox.showerror("Error", "Priority no puede ser negativa")
+                    return
+
+                for item in self.tree.get_children():
+                    if self.tree.item(item, 'values')[0] == pid:
+                        messagebox.showerror("Error", f"PID {pid} ya existe")
+                        return
+
                 self.tree.insert("", "end", values=(pid, burst, mem, pri))
                 add_win.destroy()
             except ValueError:
@@ -187,8 +201,13 @@ class OSSimulatorGUI:
             self.controller.add_process(pid, burst, mem, pri)
 
         # Iniciar simulación en thread
-        sim_thread = threading.Thread(target=self.controller.start_simulation)
+        sim_thread = threading.Thread(target=self._run_simulation_thread)
         sim_thread.start()
+
+    def _run_simulation_thread(self):
+        """Ejecuta la simulación en un thread separado."""
+        stats = self.controller.start_simulation()
+        self.root.after(0, self.on_simulation_end, stats)
 
     def on_simulation_end(self, stats):
         stats_text = f"""Estadísticas de Simulación:
@@ -204,70 +223,6 @@ Utilización de CPU: {stats['cpu_utilization']:.2f}%"""
         self.start_button.config(state='normal')
 
 
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = OSSimulatorGUI(root)
-    root.mainloop()
-    def create_processes(self):
-        self.processes = [
-            Process(1, 10, 100),
-            Process(2, 6, 200),
-            Process(3, 8, 300),
-        ]
-
-        for p in self.processes:
-           if self.memory.allocate(p):
-                self.scheduler.add_process(p)
-                self.tree.insert("", "end", iid=p.pid , values=(
-                    p.pid,
-                    p.state.name,
-                    p.remaining_time,
-                    p.memory
-                ))
-
-    # actualizar tabla
-    def Update_table(self, process):
-        self.tree.item(process.pid, values=(
-            process.pid,
-            process.state.name,
-            process.remaining_time,
-            process.memory
-        ))
-
-    def run_simulation(self):
-        if not self.scheduler.has_processes():
-            self.log.insert("end", "simulacion terminada\n")
-            return
-
-        process = self.scheduler.get_process()
-
-        if process:
-            executed = process.execute(self.scheduler.quantum)
-
-            self.log.insert(
-                "end",
-                f"PID {process.pid} ejecuto {executed}| restante={process.remaining_time}\n"
-            )
-
-            self.update_table(process)
-
-            if process.remaining_time > 0:
-                self.scheduler.add_process(process)
-        self.root.after(500,self.run_simulation)
-
-
-        def start_simulation(self):
-            self.tree.delete(*self.tree.get_children())
-            self.log.delete("1.0", "end")
-
-            self.scheduler = Scheduler(quantum=2)
-            self.memory = Memory(capacity=500)
-
-            self.create_processes()
-            self.run_simulation()
-
-
-# ejecutamos la GUI
 if __name__ == "__main__":
     root = tk.Tk()
     app = OSSimulatorGUI(root)

@@ -1,5 +1,9 @@
 import time
 
+# DEPRECATED: Esta clase fue reemplazada por CoreWorker en concurrency/worker.py.
+# CoreWorker soporta multi-core con threading y proper lock management.
+# Esta clase se mantiene solo como referencia histórica.
+
 
 class CPU:
     def __init__(self, scheduler):

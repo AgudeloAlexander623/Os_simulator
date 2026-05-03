@@ -24,9 +24,12 @@ class Process:
 
     remaining_time: int = field(init=False)
     state: ProcessState = field(default=ProcessState.READY)
+    # NOTA: arrival_time por defecto es 0. La simulación actual no soporta
+    # llegadas escalonadas; todos los procesos llegan simultáneamente al inicio.
     arrival_time: int = field(default=0)
     start_time: int = field(default=-1)
     completion_time: int = field(default=-1)
+    first_scheduled_time: int = field(default=-1)
 
     def __post_init__(self) -> None:
         """Inicializa remaining_time y valida atributos."""
@@ -86,6 +89,8 @@ class Process:
         """Calcula el tiempo de respuesta.
 
         Returns:
-            int: Tiempo de respuesta (start_time - arrival_time).
+            int: Tiempo de respuesta (first_scheduled_time - arrival_time).
         """
-        return self.waiting_time  # Para FCFS, response = waiting
+        if self.first_scheduled_time == -1:
+            return 0
+        return self.first_scheduled_time - self.arrival_time

@@ -2,6 +2,7 @@ import threading
 import logging
 from typing import TYPE_CHECKING
 from core.states import ProcessState
+from concurrency.lock import scheduler_lock, memory_lock
 
 if TYPE_CHECKING:
     from core.scheduler import Scheduler
@@ -25,13 +26,17 @@ class CoreWorker(threading.Thread):
 
     def run(self) -> None:
         """Ejecuta el loop de procesamiento de procesos."""
-        while self.scheduler.has_processes():
-            process = self.scheduler.get_process()
+        while True:
+            with scheduler_lock:
+                if not self.scheduler.has_processes():
+                    break
+                process = self.scheduler.get_process()
 
             if process:
-                # Setear start_time si es la primera ejecución
+                # Setear start_time y first_scheduled_time si es la primera ejecución
                 if process.start_time == -1:
                     process.start_time = self.current_time
+                    process.first_scheduled_time = self.current_time
 
                 executed = process.execute(self.scheduler.quantum)
 
@@ -43,6 +48,8 @@ class CoreWorker(threading.Thread):
 
                 if process.state == ProcessState.TERMINATED:
                     process.completion_time = self.current_time
-                    self.memory.free(process)
+                    with memory_lock:
+                        self.memory.free(process)
                 elif process.state == ProcessState.READY:
-                    self.scheduler.add_process(process)
+                    with scheduler_lock:
+                        self.scheduler.add_process(process)
