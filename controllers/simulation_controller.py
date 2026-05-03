@@ -1,6 +1,5 @@
 import logging
 import threading
-import time
 from typing import List, Callable
 from core.process import Process
 from core.scheduler import Scheduler, FCFSScheduler, SJFScheduler, PriorityScheduler, RoundRobinScheduler
@@ -57,7 +56,6 @@ class SimulationController:
         Returns:
             dict: Estadísticas calculadas al final de la simulación.
         """
-        start_time = time.time()
         loaded_processes = []
 
         # Cargar procesos
@@ -76,8 +74,8 @@ class SimulationController:
         for core in cores:
             core.join()
 
-        end_time = time.time()
-        total_time = end_time - start_time
+        # Tiempo simulado: max tiempo entre cores (cores corren en paralelo)
+        total_time = max((core.current_time for core in cores), default=0)
         completed_processes = [p for p in loaded_processes if p.completion_time != -1]
         completed = len(completed_processes)
         throughput = completed / total_time if total_time > 0 else 0
@@ -90,7 +88,7 @@ class SimulationController:
         else:
             avg_waiting = avg_turnaround = avg_response = 0
 
-        # CPU utilization (tiempo total ejecutado / (tiempo total * num_cores))
+        # CPU utilization (tiempo total ejecutado / (tiempo simulado * num_cores))
         total_burst = sum(p.burst_time for p in loaded_processes)
         cpu_utilization = total_burst / (total_time * self.num_cores) if total_time > 0 else 0
         cpu_utilization = min(cpu_utilization, 1.0)  # Cap a 100%

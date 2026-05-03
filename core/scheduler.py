@@ -19,29 +19,17 @@ class Scheduler:
         self.queue: Queue['Process'] = Queue()
 
     def add_process(self, process: 'Process') -> None:
-        """Agrega un proceso a la cola.
-
-        Args:
-            process (Process): Proceso a agregar.
-        """
+        """Agrega un proceso a la cola."""
         self.queue.put(process)
 
     def get_process(self) -> Optional['Process']:
-        """Obtiene el próximo proceso.
-
-        Returns:
-            Optional[Process]: Próximo proceso o None.
-        """
+        """Obtiene el próximo proceso."""
         if self.queue.empty():
             return None
         return self.queue.get()
 
     def has_processes(self) -> bool:
-        """Verifica si hay procesos pendientes.
-
-        Returns:
-            bool: True si hay procesos.
-        """
+        """Verifica si hay procesos pendientes."""
         return not self.queue.empty()
 
 
@@ -49,9 +37,6 @@ class FCFSScheduler(Scheduler):
     """First-Come, First-Served: Procesa en orden de llegada, sin quantum."""
     def __init__(self):
         super().__init__(quantum=0)
-
-    def get_process(self) -> Optional['Process']:
-        return super().get_process()
 
 
 class SJFScheduler(Scheduler):
@@ -78,10 +63,10 @@ class PriorityScheduler(Scheduler):
     """Priority Scheduling: Prioriza por prioridad (menor número = mayor prioridad)."""
     def __init__(self, quantum: int):
         super().__init__(quantum)
-        self.heap = []  # (priority, process) - asumir priority en Process
+        self.heap = []  # (priority, process)
 
     def add_process(self, process: 'Process') -> None:
-        priority = getattr(process, 'priority', 0)  # Default priority
+        priority = getattr(process, 'priority', 0)
         heapq.heappush(self.heap, (priority, process))
 
     def get_process(self) -> Optional['Process']:
