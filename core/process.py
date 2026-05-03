@@ -45,14 +45,14 @@ class Process:
         """Ejecuta el proceso por un quantum de tiempo.
 
         Args:
-            quantum (int): Tiempo máximo de ejecución.
+            quantum (int): Tiempo máximo de ejecución (0 = ejecuta todo, FCFS).
 
         Returns:
             int: Tiempo ejecutado.
         """
         self.state = ProcessState.RUNNING
 
-        executed = min(self.remaining_time, quantum)
+        executed = self.remaining_time if quantum == 0 else min(self.remaining_time, quantum)
         self.remaining_time -= executed
 
         if self.remaining_time <= 0:
@@ -66,12 +66,14 @@ class Process:
     def waiting_time(self) -> int:
         """Calcula el tiempo de espera.
 
+        Fórmula estándar: turnaround_time - burst_time.
+        Esto incluye todo el tiempo en cola READY (incluyendo re-encolados).
+
         Returns:
-            int: Tiempo de espera (start_time - arrival_time).
+            int: Tiempo de espera total.
         """
-        if self.start_time == -1:
-            return 0
-        return self.start_time - self.arrival_time
+        tt = self.turnaround_time
+        return tt - self.burst_time if tt > 0 else 0
 
     @property
     def turnaround_time(self) -> int:

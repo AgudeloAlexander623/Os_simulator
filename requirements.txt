@@ -1,2 +1,4 @@
-# Dependencias para OS Simulator
-# Solo bibliotecas estándar de Python, no se requieren externas.
+# OS Simulator - Dependencias
+# El proyecto usa solo bibliotecas estándar de Python.
+# Para desarrollo opcional:
+# rich>=13.0

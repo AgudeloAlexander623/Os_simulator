@@ -1,5 +1,6 @@
 from controllers.simulation_controller import SimulationController
-import utils.config as config
+from utils import config
+from utils.process_factory import sample_processes
 import logging
 import utils.logger
 
@@ -12,17 +13,9 @@ def main():
         num_cores=config.NUM_CORES
     )
 
-    # Agregar procesos
-    processes = [
-        (1, 10, 100, 1),
-        (2, 6, 200, 2),
-        (3, 8, 300, 0),
-    ]
-
-    for pid, burst, mem, pri in processes:
+    for pid, burst, mem, pri in sample_processes():
         controller.add_process(pid, burst, mem, pri)
 
-    # Iniciar simulación
     stats = controller.start_simulation()
 
     logging.info(f"Procesos completados: {stats['completed']}")

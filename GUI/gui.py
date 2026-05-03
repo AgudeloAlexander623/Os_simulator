@@ -8,6 +8,7 @@ from core.scheduler import Scheduler, FCFSScheduler, SJFScheduler, PrioritySched
 from core.memory import Memory
 from concurrency.worker import CoreWorker
 from utils import config
+from utils.process_factory import sample_processes
 from controllers.simulation_controller import SimulationController
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
@@ -69,6 +70,11 @@ class OSSimulatorGUI:
         self.memory_entry = tk.Entry(control_frame, textvariable=self.memory_var, bg='#333333', fg='#00ff00', font=('Courier', 10))
         self.memory_entry.pack(pady=2)
 
+        tk.Label(control_frame, text="Cores:", bg='#1a1a1a', fg='#00ff00', font=('Courier', 10)).pack(anchor='w')
+        self.cores_var = tk.IntVar(value=config.NUM_CORES)
+        self.cores_entry = tk.Entry(control_frame, textvariable=self.cores_var, bg='#333333', fg='#00ff00', font=('Courier', 10))
+        self.cores_entry.pack(pady=2)
+
         # Etiqueta para procesos
         tk.Label(control_frame, text="Procesos:", bg='#1a1a1a', fg='#00ff00', font=('Courier', 12)).pack(anchor='w')
 
@@ -115,12 +121,7 @@ class OSSimulatorGUI:
         self.add_sample_processes()
 
     def add_sample_processes(self):
-        sample_processes = [
-            (1, 10, 100, 1),
-            (2, 6, 200, 2),
-            (3, 8, 300, 0),
-        ]
-        for pid, burst, mem, pri in sample_processes:
+        for pid, burst, mem, pri in sample_processes():
             self.tree.insert("", "end", values=(pid, burst, mem, pri))
 
     def add_process(self):
@@ -191,7 +192,8 @@ class OSSimulatorGUI:
         sched_type = self.sched_var.get()
         quantum = self.quantum_var.get()
         memory_cap = self.memory_var.get()
-        self.controller = SimulationController(sched_type, quantum, memory_cap, config.NUM_CORES)
+        num_cores = max(1, self.cores_var.get())
+        self.controller = SimulationController(sched_type, quantum, memory_cap, num_cores)
         self.controller.on_simulation_end = self.on_simulation_end
 
         # Agregar procesos desde tabla

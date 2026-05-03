@@ -5,6 +5,8 @@ from core.process import Process
 from core.scheduler import Scheduler, FCFSScheduler, SJFScheduler, PriorityScheduler, RoundRobinScheduler
 from core.memory import Memory
 from concurrency.worker import CoreWorker
+from utils import config
+from utils.gantt import GanttChart
 
 
 class SimulationController:
@@ -68,14 +70,16 @@ class SimulationController:
                 logging.warning(f"Error al cargar proceso {p.pid}: {e}")
 
         # Crear workers
-        cores = [CoreWorker(self.scheduler, self.memory) for _ in range(self.num_cores)]
+        overhead = getattr(config, 'CONTEXT_SWITCH_OVERHEAD', 0)
+        cores = [CoreWorker(self.scheduler, self.memory, overhead) for _ in range(self.num_cores)]
         for core in cores:
             core.start()
         for core in cores:
             core.join()
 
-        # Tiempo simulado: max tiempo entre cores (cores corren en paralelo)
-        total_time = max((core.current_time for core in cores), default=0)
+        # Tiempo simulado teórico: total burst / num_cores (cores en paralelo)
+        total_burst = sum(p.burst_time for p in loaded_processes)
+        total_time = total_burst / self.num_cores if self.num_cores > 0 else 0
         completed_processes = [p for p in loaded_processes if p.completion_time != -1]
         completed = len(completed_processes)
         throughput = completed / total_time if total_time > 0 else 0

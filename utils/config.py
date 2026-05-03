@@ -10,5 +10,8 @@ MEMORY_CAPACITY = 500
 # Número de cores
 NUM_CORES = 2
 
+# Context switch overhead (en unidades de tiempo simulado)
+CONTEXT_SWITCH_OVERHEAD = 0
+
 # Logging level
 LOG_LEVEL = 'INFO'
