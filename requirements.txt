@@ -1,4 +1,0 @@
-# OS Simulator - Dependencias
-# El proyecto usa solo bibliotecas estándar de Python.
-# Para desarrollo opcional:
-# rich>=13.0

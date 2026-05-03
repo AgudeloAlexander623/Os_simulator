@@ -14,7 +14,7 @@ Un simulador básico de sistema operativo en Python, con procesos, scheduler mú
 1. Clona el repo.
 2. Crea un venv: `python -m venv venv`
 3. Activa: `source venv/bin/activate`
-4. Instala dependencias: `pip install -r requirements.txt`
+4. Instala dependencias: `pip install -e .` (base) o `pip install -e ".[dev]"` (desarrollo)
 5. Ejecuta: `python main.py` o `python GUI/gui.py`
 
 ## Uso
