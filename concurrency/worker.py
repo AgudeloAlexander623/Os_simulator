@@ -1,30 +1,42 @@
 import threading
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 from core.states import ProcessState
 from concurrency.lock import scheduler_lock, memory_lock
 
 if TYPE_CHECKING:
     from core.scheduler import Scheduler
     from core.memory import Memory
+    from utils.gantt import GanttChart
 
 
 class CoreWorker(threading.Thread):
     """Trabajador que ejecuta procesos en un núcleo simulado."""
 
-    def __init__(self, scheduler: 'Scheduler', memory: 'Memory', context_switch_overhead: int = 0):
+    def __init__(
+        self,
+        scheduler: 'Scheduler',
+        memory: 'Memory',
+        context_switch_overhead: int = 0,
+        core_id: int = 0,
+        gantt_chart: Optional['GanttChart'] = None,
+    ):
         """Inicializa el worker.
 
         Args:
             scheduler (Scheduler): Scheduler para obtener procesos.
             memory (Memory): Memoria para liberar procesos terminados.
             context_switch_overhead (int): Costo en tiempo de context switch.
+            core_id (int): ID del core (para Gantt chart).
+            gantt_chart (Optional[GanttChart]): Gantt chart para registrar ejecución.
         """
         super().__init__()
         self.scheduler = scheduler
         self.memory = memory
         self.context_switch_overhead = context_switch_overhead
+        self.core_id = core_id
+        self.gantt_chart = gantt_chart
         self.current_time = 0
 
     def run(self) -> None:
@@ -48,6 +60,12 @@ class CoreWorker(threading.Thread):
 
                 # Ejecutar FUERA del lock (cores corren en paralelo)
                 executed = process.execute(self.scheduler.quantum)
+
+                # Registrar en Gantt chart
+                if self.gantt_chart:
+                    for t in range(self.current_time, self.current_time + executed):
+                        self.gantt_chart.record(t, self.core_id, process.pid)
+
                 self.current_time += executed
 
                 logging.info(

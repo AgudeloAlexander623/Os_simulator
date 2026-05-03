@@ -22,6 +22,7 @@ def main():
     logging.info(f"Tiempo de espera promedio: {stats['avg_waiting_time']:.2f}")
     logging.info(f"Tiempo de turnaround promedio: {stats['avg_turnaround_time']:.2f}")
     logging.info(f"Uso de CPU: {stats['cpu_utilization']:.2f}")
+    logging.info(f"Gantt Chart:\n{stats['gantt_chart']}")
     logging.info("Simulación finalizada")
 
 

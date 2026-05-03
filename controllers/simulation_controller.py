@@ -5,14 +5,13 @@ from core.process import Process
 from core.scheduler import Scheduler, FCFSScheduler, SJFScheduler, PriorityScheduler, RoundRobinScheduler
 from core.memory import Memory
 from concurrency.worker import CoreWorker
-from utils import config
 from utils.gantt import GanttChart
 
 
 class SimulationController:
     """Controlador para la lógica de simulación (MVC)."""
 
-    def __init__(self, scheduler_type: str, quantum: int, memory_cap: int, num_cores: int):
+    def __init__(self, scheduler_type: str, quantum: int, memory_cap: int, num_cores: int, context_switch_overhead: int = 0):
         """Inicializa el controlador.
 
         Args:
@@ -20,10 +19,12 @@ class SimulationController:
             quantum (int): Quantum.
             memory_cap (int): Capacidad de memoria.
             num_cores (int): Número de cores.
+            context_switch_overhead (int): Costo de context switch.
         """
         self.scheduler = self._create_scheduler(scheduler_type, quantum)
         self.memory = Memory(memory_cap)
         self.num_cores = num_cores
+        self.context_switch_overhead = context_switch_overhead
         self.processes: List[Process] = []
         self.on_simulation_end: Callable[[dict], None] = None
 
@@ -70,8 +71,11 @@ class SimulationController:
                 logging.warning(f"Error al cargar proceso {p.pid}: {e}")
 
         # Crear workers
-        overhead = getattr(config, 'CONTEXT_SWITCH_OVERHEAD', 0)
-        cores = [CoreWorker(self.scheduler, self.memory, overhead) for _ in range(self.num_cores)]
+        gantt = GanttChart()
+        cores = [
+            CoreWorker(self.scheduler, self.memory, self.context_switch_overhead, core_id=i, gantt_chart=gantt)
+            for i in range(self.num_cores)
+        ]
         for core in cores:
             core.start()
         for core in cores:
@@ -104,7 +108,8 @@ class SimulationController:
             "avg_waiting_time": avg_waiting,
             "avg_turnaround_time": avg_turnaround,
             "avg_response_time": avg_response,
-            "cpu_utilization": cpu_utilization
+            "cpu_utilization": cpu_utilization,
+            "gantt_chart": gantt.render(self.num_cores),
         }
         if self.on_simulation_end:
             self.on_simulation_end(stats)

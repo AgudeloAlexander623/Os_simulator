@@ -1,12 +1,9 @@
 import os
 import sys
+from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from core.process import Process
-from core.scheduler import Scheduler, FCFSScheduler, SJFScheduler, PriorityScheduler, RoundRobinScheduler
-from core.memory import Memory
-from concurrency.worker import CoreWorker
 from utils import config
 from utils.process_factory import sample_processes
 from controllers.simulation_controller import SimulationController
@@ -16,213 +13,469 @@ import threading
 import logging
 
 
+# ==============================================================================
+# Modern Theme Palette
+# ==============================================================================
+THEME = {
+    "bg_primary": "#f5f5f5",
+    "bg_secondary": "#ffffff",
+    "bg_card": "#ffffff",
+    "bg_input": "#f0f0f0",
+    "bg_button_primary": "#2563eb",
+    "bg_button_secondary": "#6b7280",
+    "bg_button_danger": "#ef4444",
+    "bg_success": "#10b981",
+    "bg_statusbar": "#1e293b",
+    "text_primary": "#1e293b",
+    "text_secondary": "#64748b",
+    "text_on_primary": "#ffffff",
+    "text_on_dark": "#e2e8f0",
+    "border": "#e2e8f0",
+    "accent": "#2563eb",
+    "log_bg": "#0f172a",
+    "log_fg": "#22d3ee",
+    "stats_bg": "#f8fafc",
+    "stats_fg": "#1e293b",
+}
+
+FONT_BASE = ("Segoe UI", 10)
+FONT_BOLD = ("Segoe UI", 10, "bold")
+FONT_TITLE = ("Segoe UI", 14, "bold")
+FONT_SMALL = ("Segoe UI", 9)
+FONT_MONO = ("Consolas", 10)
+FONT_MONO_SMALL = ("Consolas", 9)
+
+
 class TextHandler(logging.Handler):
-    def __init__(self, text_widget):
+    def __init__(self, text_widget: tk.Text) -> None:
         super().__init__()
         self.text_widget = text_widget
 
-    def emit(self, record):
+    def emit(self, record: logging.LogRecord) -> None:
         msg = self.format(record)
         self.text_widget.insert(tk.END, msg + '\n')
         self.text_widget.see(tk.END)
 
 
 class OSSimulatorGUI:
-    def __init__(self, root):
+    def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("OS Simulator - Hacker Mode")
-        self.root.geometry("800x600")
-        self.root.configure(bg='#1a1a1a')  # Fondo oscuro hacker
+        self.root.title("OS Simulator")
+        self.root.geometry("1100x700")
+        self.root.configure(bg=THEME["bg_primary"])
+        self.root.minsize(900, 600)
 
-        # Configurar logging para la GUI
-        self.log_text = scrolledtext.ScrolledText(self.root, height=10, bg='#000000', fg='#00ff00', font=('Courier', 10))
-        self.log_text.pack(fill="both", expand=True, padx=10, pady=10)
+        self.controller: Optional[SimulationController] = None
+        self.is_running = False
 
-        handler = TextHandler(self.log_text)
-        handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
-        logging.getLogger().addHandler(handler)
-        logging.getLogger().setLevel(logging.INFO)
+        self._create_layout()
+        self._setup_styles()
+        self._add_sample_processes()
 
-        self.controller = None
-        self.create_widgets()
+    def _create_layout(self) -> None:
+        # ---- Top section: controls + process table (side by side) ----
+        top_frame = tk.Frame(self.root, bg=THEME["bg_primary"])
+        top_frame.pack(fill="both", expand=True, padx=12, pady=8)
 
-    def create_widgets(self):
-        # Frame para controles
-        control_frame = tk.Frame(self.root, bg='#1a1a1a')
-        control_frame.pack(fill="x", padx=10, pady=5)
+        # Left: Configuration panel
+        config_card = self._create_card(top_frame, "Configuration")
+        config_card.pack(side="left", fill="both", padx=(0, 6))
 
-        # Selector de scheduler
-        tk.Label(control_frame, text="Scheduler:", bg='#1a1a1a', fg='#00ff00', font=('Courier', 12)).pack(anchor='w')
-        self.sched_var = tk.StringVar(value=config.SCHEDULER_TYPE)
-        sched_options = ['round_robin', 'fcfs', 'sjf', 'priority']
-        self.sched_menu = tk.OptionMenu(control_frame, self.sched_var, *sched_options)
-        self.sched_menu.config(bg='#333333', fg='#00ff00', font=('Courier', 10))
-        self.sched_menu.pack(pady=5)
+        config_content = tk.Frame(config_card, bg=THEME["bg_secondary"])
+        config_content.pack(fill="both", expand=True, padx=12, pady=8)
+        self._build_config_controls(config_content)
 
-        # Controles para quantum y memoria
-        tk.Label(control_frame, text="Quantum:", bg='#1a1a1a', fg='#00ff00', font=('Courier', 10)).pack(anchor='w')
-        self.quantum_var = tk.IntVar(value=config.QUANTUM)
-        self.quantum_entry = tk.Entry(control_frame, textvariable=self.quantum_var, bg='#333333', fg='#00ff00', font=('Courier', 10))
-        self.quantum_entry.pack(pady=2)
+        # Right: Process table
+        process_card = self._create_card(top_frame, "Processes")
+        process_card.pack(side="right", fill="both", expand=True, padx=(6, 0))
 
-        tk.Label(control_frame, text="Memoria:", bg='#1a1a1a', fg='#00ff00', font=('Courier', 10)).pack(anchor='w')
-        self.memory_var = tk.IntVar(value=config.MEMORY_CAPACITY)
-        self.memory_entry = tk.Entry(control_frame, textvariable=self.memory_var, bg='#333333', fg='#00ff00', font=('Courier', 10))
-        self.memory_entry.pack(pady=2)
+        process_content = tk.Frame(process_card, bg=THEME["bg_secondary"])
+        process_content.pack(fill="both", expand=True, padx=12, pady=8)
+        self._build_process_table(process_content)
 
-        tk.Label(control_frame, text="Cores:", bg='#1a1a1a', fg='#00ff00', font=('Courier', 10)).pack(anchor='w')
-        self.cores_var = tk.IntVar(value=config.NUM_CORES)
-        self.cores_entry = tk.Entry(control_frame, textvariable=self.cores_var, bg='#333333', fg='#00ff00', font=('Courier', 10))
-        self.cores_entry.pack(pady=2)
+        # ---- Bottom section: logs + stats (split) ----
+        bottom_paned = tk.PanedWindow(
+            self.root, orient="horizontal", bg=THEME["border"], sashwidth=4
+        )
+        bottom_paned.pack(fill="both", expand=True, padx=12, pady=(0, 8))
 
-        # Etiqueta para procesos
-        tk.Label(control_frame, text="Procesos:", bg='#1a1a1a', fg='#00ff00', font=('Courier', 12)).pack(anchor='w')
+        # Logs panel - hijo directo del PanedWindow
+        logs_card = tk.Frame(bottom_paned, bg=THEME["bg_secondary"])
+        self._build_card_inside(logs_card, "Log")
+        bottom_paned.add(logs_card, minsize=300)
 
-        # Tabla de procesos
-        columns = ("PID", "Burst Time", "Memory", "Priority")
-        self.tree = ttk.Treeview(control_frame, columns=columns, show="headings", height=5)
-        self.tree.pack(fill="x", pady=5)
+        self._build_log_panel(logs_card)
 
-        # Estilo para treeview hacker
-        style = ttk.Style()
-        style.configure("Treeview", background="#333333", foreground="#00ff00", fieldbackground="#333333", font=('Courier', 10))
-        style.configure("Treeview.Heading", background="#444444", foreground="#00ff00", font=('Courier', 10, 'bold'))
+        # Stats panel - hijo directo del PanedWindow
+        stats_card = tk.Frame(bottom_paned, bg=THEME["bg_secondary"])
+        self._build_card_inside(stats_card, "Statistics & Gantt")
+        bottom_paned.add(stats_card, minsize=300)
+
+        self._build_stats_panel(stats_card)
+
+        # ---- Status bar ----
+        self._build_statusbar()
+
+    def _create_card(self, parent: tk.Widget, title: str) -> tk.Frame:
+        """Crea un frame card con título. Retorna el frame contenedor."""
+        outer = tk.Frame(parent, bg=THEME["bg_secondary"], relief="flat")
+
+        title_bar = tk.Frame(outer, bg=THEME["bg_secondary"])
+        title_bar.pack(fill="x", padx=12, pady=(10, 6))
+
+        tk.Label(
+            title_bar, text=title, bg=THEME["bg_secondary"],
+            fg=THEME["text_primary"], font=FONT_TITLE,
+        ).pack(anchor="w")
+
+        tk.Frame(outer, height=1, bg=THEME["border"]).pack(fill="x", padx=12)
+
+        return outer
+
+    def _build_card_inside(self, frame: tk.Frame, title: str) -> None:
+        """Agrega título y separador dentro de un frame existente (para PanedWindow)."""
+        title_bar = tk.Frame(frame, bg=THEME["bg_secondary"])
+        title_bar.pack(fill="x", padx=12, pady=(10, 6))
+
+        tk.Label(
+            title_bar, text=title, bg=THEME["bg_secondary"],
+            fg=THEME["text_primary"], font=FONT_TITLE,
+        ).pack(anchor="w")
+
+        tk.Frame(frame, height=1, bg=THEME["border"]).pack(fill="x", padx=12)
+
+    def _build_config_controls(self, parent: tk.Widget) -> None:
+        fields = [
+            ("Scheduler", "sched_var", config.SCHEDULER_TYPE, True),
+            ("Quantum", "quantum_var", config.QUANTUM, False),
+            ("Memory", "memory_var", config.MEMORY_CAPACITY, False),
+            ("Cores", "cores_var", config.NUM_CORES, False),
+            ("Context Switch", "overhead_var", getattr(config, 'CONTEXT_SWITCH_OVERHEAD', 0), False),
+        ]
+
+        self.sched_var = tk.StringVar()
+        self.quantum_var = tk.IntVar()
+        self.memory_var = tk.IntVar()
+        self.cores_var = tk.IntVar()
+        self.overhead_var = tk.IntVar()
+
+        vars_map = {
+            "sched_var": self.sched_var,
+            "quantum_var": self.quantum_var,
+            "memory_var": self.memory_var,
+            "cores_var": self.cores_var,
+            "overhead_var": self.overhead_var,
+        }
+
+        self.sched_var.set(config.SCHEDULER_TYPE)
+        self.quantum_var.set(config.QUANTUM)
+        self.memory_var.set(config.MEMORY_CAPACITY)
+        self.cores_var.set(config.NUM_CORES)
+        self.overhead_var.set(getattr(config, 'CONTEXT_SWITCH_OVERHEAD', 0))
+
+        for i, (label, var_name, default, is_option) in enumerate(fields):
+            row = tk.Frame(parent, bg=THEME["bg_secondary"])
+            row.pack(fill="x", pady=4)
+
+            tk.Label(
+                row, text=label, bg=THEME["bg_secondary"],
+                fg=THEME["text_secondary"], font=FONT_SMALL, width=14, anchor="w",
+            ).pack(side="left")
+
+            var_obj = vars_map[var_name]
+            if is_option:
+                opts = ['round_robin', 'fcfs', 'sjf', 'priority']
+                menu = ttk.Combobox(
+                    row, textvariable=var_obj, values=opts,
+                    state="readonly", width=14, font=FONT_SMALL,
+                )
+                menu.pack(side="left", fill="x", expand=True)
+            else:
+                entry = tk.Entry(
+                    row, textvariable=var_obj, bg=THEME["bg_input"],
+                    fg=THEME["text_primary"], font=FONT_SMALL, relief="flat",
+                )
+                entry.pack(side="left", fill="x", expand=True, ipady=4)
+
+        # Buttons
+        btn_row = tk.Frame(parent, bg=THEME["bg_secondary"])
+        btn_row.pack(fill="x", pady=(16, 4))
+
+        self.start_button = tk.Button(
+            btn_row, text="▶  Run Simulation",
+            command=self.start_simulation,
+            bg=THEME["bg_button_primary"], fg=THEME["text_on_primary"],
+            font=FONT_BOLD, relief="flat", bd=0, padx=16, pady=8,
+            activebackground="#1d4ed8", activeforeground=THEME["text_on_primary"],
+            cursor="hand2",
+        )
+        self.start_button.pack(side="left", padx=(0, 8))
+
+        self.clear_btn = tk.Button(
+            btn_row, text="✕  Clear",
+            command=self._clear_logs,
+            bg=THEME["bg_button_secondary"], fg=THEME["text_on_primary"],
+            font=FONT_SMALL, relief="flat", bd=0, padx=12, pady=8,
+            activebackground="#4b5563", activeforeground=THEME["text_on_primary"],
+            cursor="hand2",
+        )
+        self.clear_btn.pack(side="left")
+
+    def _build_process_table(self, parent: tk.Widget) -> None:
+        # Table
+        columns = ("PID", "Burst", "Memory", "Priority")
+        self.tree = ttk.Treeview(
+            parent, columns=columns, show="headings", height=8
+        )
+        self.tree.pack(fill="both", expand=True)
 
         for col in columns:
             self.tree.heading(col, text=col)
-            self.tree.column(col, width=100)
+            widths = {"PID": 50, "Burst": 70, "Memory": 80, "Priority": 70}
+            self.tree.column(col, width=widths.get(col, 80), anchor="center")
 
-        # Botones para editar procesos
-        button_frame = tk.Frame(control_frame, bg='#1a1a1a')
-        button_frame.pack(pady=5)
-        self.add_button = tk.Button(button_frame, text="Agregar Proceso", command=self.add_process, bg='#333333', fg='#00ff00', font=('Courier', 10))
-        self.add_button.pack(side='left', padx=5)
-        self.remove_button = tk.Button(button_frame, text="Remover Seleccionado", command=self.remove_process, bg='#333333', fg='#00ff00', font=('Courier', 10))
-        self.remove_button.pack(side='left', padx=5)
+        # Button bar
+        btn_bar = tk.Frame(parent, bg=THEME["bg_secondary"])
+        btn_bar.pack(fill="x", pady=(8, 0))
 
-        # Botón iniciar con estilo hacker
-        self.start_button = tk.Button(
-            control_frame,
-            text="Iniciar Simulación",
-            command=self.start_simulation,
-            bg='#333333',
-            fg='#00ff00',
-            font=('Courier', 12, 'bold'),
-            activebackground='#555555',
-            activeforeground='#00ff00'
+        tk.Button(
+            btn_bar, text="+  Add", command=self.add_process,
+            bg=THEME["bg_button_primary"], fg=THEME["text_on_primary"],
+            font=FONT_SMALL, relief="flat", bd=0, padx=12, pady=6,
+            activebackground="#1d4ed8", cursor="hand2",
+        ).pack(side="left", padx=(0, 6))
+
+        tk.Button(
+            btn_bar, text="−  Remove", command=self.remove_process,
+            bg=THEME["bg_button_danger"], fg=THEME["text_on_primary"],
+            font=FONT_SMALL, relief="flat", bd=0, padx=12, pady=6,
+            activebackground="#dc2626", cursor="hand2",
+        ).pack(side="left", padx=(0, 6))
+
+        tk.Button(
+            btn_bar, text="Reset to Sample", command=self._reset_processes,
+            bg=THEME["bg_button_secondary"], fg=THEME["text_on_primary"],
+            font=FONT_SMALL, relief="flat", bd=0, padx=12, pady=6,
+            activebackground="#4b5563", cursor="hand2",
+        ).pack(side="right")
+
+    def _build_log_panel(self, parent: tk.Widget) -> None:
+        content = tk.Frame(parent, bg=THEME["bg_secondary"])
+        content.pack(fill="both", expand=True, padx=12, pady=8)
+
+        self.log_text = scrolledtext.ScrolledText(
+            content, bg=THEME["log_bg"], fg=THEME["log_fg"],
+            font=FONT_MONO_SMALL, relief="flat", padx=8, pady=8,
         )
-        self.start_button.pack(pady=10)
+        self.log_text.pack(fill="both", expand=True)
 
-        # Área de estadísticas
-        self.stats_label = tk.Label(self.root, text="Estadísticas: ", bg='#1a1a1a', fg='#00ff00', font=('Courier', 12))
-        self.stats_label.pack(pady=5)
+        handler = TextHandler(self.log_text)
+        handler.setFormatter(logging.Formatter('%(asctime)s  %(message)s', datefmt='%H:%M:%S'))
+        logging.getLogger().addHandler(handler)
+        logging.getLogger().setLevel(logging.INFO)
 
-        # Agregar procesos de ejemplo
-        self.add_sample_processes()
+    def _build_stats_panel(self, parent: tk.Widget) -> None:
+        content = tk.Frame(parent, bg=THEME["bg_secondary"])
+        content.pack(fill="both", expand=True, padx=12, pady=8)
 
-    def add_sample_processes(self):
+        self.stats_text = scrolledtext.ScrolledText(
+            content, bg=THEME["stats_bg"], fg=THEME["stats_fg"],
+            font=FONT_MONO, relief="flat", padx=12, pady=12,
+            state="disabled",
+        )
+        self.stats_text.pack(fill="both", expand=True)
+        self.stats_text.insert(tk.END, "Run a simulation to see statistics here.")
+
+    def _build_statusbar(self) -> None:
+        self.status_bar = tk.Frame(self.root, bg=THEME["bg_statusbar"], height=28)
+        self.status_bar.pack(fill="x", side="bottom")
+
+        self.status_label = tk.Label(
+            self.status_bar, text="Ready", bg=THEME["bg_statusbar"],
+            fg=THEME["text_on_dark"], font=FONT_SMALL, anchor="w", padx=12,
+        )
+        self.status_label.pack(side="left")
+
+        self.proc_count_label = tk.Label(
+            self.status_bar, text="", bg=THEME["bg_statusbar"],
+            fg=THEME["text_on_dark"], font=FONT_SMALL, anchor="e", padx=12,
+        )
+        self.proc_count_label.pack(side="right")
+        self._update_proc_count()
+
+    def _setup_styles(self) -> None:
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure(
+            "Treeview",
+            background=THEME["bg_input"], foreground=THEME["text_primary"],
+            fieldbackground=THEME["bg_input"], font=FONT_SMALL,
+            borderwidth=0,
+        )
+        style.configure(
+            "Treeview.Heading",
+            background=THEME["bg_primary"], foreground=THEME["text_secondary"],
+            font=FONT_BOLD, relief="flat",
+        )
+        style.map("Treeview.Heading", background=[("active", THEME["border"])])
+        style.configure(
+            "TCombobox",
+            fieldbackground=THEME["bg_input"], foreground=THEME["text_primary"],
+            font=FONT_SMALL,
+        )
+
+    def _update_proc_count(self) -> None:
+        count = len(self.tree.get_children())
+        self.proc_count_label.config(text=f"{count} process{'es' if count != 1 else ''}")
+
+    def _add_sample_processes(self) -> None:
         for pid, burst, mem, pri in sample_processes():
             self.tree.insert("", "end", values=(pid, burst, mem, pri))
+        self._update_proc_count()
 
-    def add_process(self):
-        # Ventana emergente para agregar proceso
-        add_win = tk.Toplevel(self.root)
-        add_win.title("Agregar Proceso")
-        add_win.configure(bg='#1a1a1a')
+    def _reset_processes(self) -> None:
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        self._add_sample_processes()
 
-        tk.Label(add_win, text="PID:", bg='#1a1a1a', fg='#00ff00').grid(row=0, column=0)
-        pid_entry = tk.Entry(add_win, bg='#333333', fg='#00ff00')
-        pid_entry.grid(row=0, column=1)
+    def add_process(self) -> None:
+        win = tk.Toplevel(self.root)
+        win.title("Add Process")
+        win.geometry("320x220")
+        win.configure(bg=THEME["bg_primary"])
+        win.transient(self.root)
+        win.grab_set()
 
-        tk.Label(add_win, text="Burst Time:", bg='#1a1a1a', fg='#00ff00').grid(row=1, column=0)
-        burst_entry = tk.Entry(add_win, bg='#333333', fg='#00ff00')
-        burst_entry.grid(row=1, column=1)
+        fields_data = [
+            ("PID", 0), ("Burst Time", 0), ("Memory", 0), ("Priority", 0)
+        ]
+        entries = []
 
-        tk.Label(add_win, text="Memory:", bg='#1a1a1a', fg='#00ff00').grid(row=2, column=0)
-        mem_entry = tk.Entry(add_win, bg='#333333', fg='#00ff00')
-        mem_entry.grid(row=2, column=1)
+        for i, (label, _) in enumerate(fields_data):
+            tk.Label(
+                win, text=label, bg=THEME["bg_primary"],
+                fg=THEME["text_secondary"], font=FONT_SMALL,
+            ).grid(row=i, column=0, padx=12, pady=8, sticky="e")
 
-        tk.Label(add_win, text="Priority:", bg='#1a1a1a', fg='#00ff00').grid(row=3, column=0)
-        pri_entry = tk.Entry(add_win, bg='#333333', fg='#00ff00')
-        pri_entry.grid(row=3, column=1)
+            entry = tk.Entry(
+                win, bg=THEME["bg_input"], fg=THEME["text_primary"],
+                font=FONT_SMALL, relief="flat", width=15,
+            )
+            entry.grid(row=i, column=1, padx=(0, 12), pady=8, sticky="w")
+            entry.insert(0, "0")
+            entries.append(entry)
 
-        def save_process():
+        def save():
             try:
-                pid = int(pid_entry.get())
-                burst = int(burst_entry.get())
-                mem = int(mem_entry.get())
-                pri = int(pri_entry.get())
+                values = [int(e.get()) for e in entries]
+                pid, burst, mem, pri = values
 
                 if pid <= 0:
-                    messagebox.showerror("Error", "PID debe ser positivo")
+                    messagebox.showerror("Error", "PID must be positive", parent=win)
                     return
                 if burst <= 0:
-                    messagebox.showerror("Error", "Burst time debe ser positivo")
+                    messagebox.showerror("Error", "Burst time must be positive", parent=win)
                     return
                 if mem <= 0:
-                    messagebox.showerror("Error", "Memory debe ser positiva")
+                    messagebox.showerror("Error", "Memory must be positive", parent=win)
                     return
                 if pri < 0:
-                    messagebox.showerror("Error", "Priority no puede ser negativa")
+                    messagebox.showerror("Error", "Priority cannot be negative", parent=win)
                     return
 
                 for item in self.tree.get_children():
                     if self.tree.item(item, 'values')[0] == pid:
-                        messagebox.showerror("Error", f"PID {pid} ya existe")
+                        messagebox.showerror("Error", f"PID {pid} already exists", parent=win)
                         return
 
-                self.tree.insert("", "end", values=(pid, burst, mem, pri))
-                add_win.destroy()
+                self.tree.insert("", "end", values=values)
+                self._update_proc_count()
+                win.destroy()
             except ValueError:
-                messagebox.showerror("Error", "Valores inválidos")
+                messagebox.showerror("Error", "All fields must be integers", parent=win)
 
-        tk.Button(add_win, text="Guardar", command=save_process, bg='#333333', fg='#00ff00').grid(row=4, columnspan=2)
+        tk.Button(
+            win, text="Save", command=save,
+            bg=THEME["bg_button_primary"], fg=THEME["text_on_primary"],
+            font=FONT_SMALL, relief="flat", bd=0, padx=20, pady=6,
+            activebackground="#1d4ed8", cursor="hand2",
+        ).grid(row=4, column=0, columnspan=2, pady=12)
 
-    def remove_process(self):
+        win.bind("<Return>", lambda _: save())
+
+    def remove_process(self) -> None:
         selected = self.tree.selection()
         if selected:
             self.tree.delete(selected)
+            self._update_proc_count()
 
-    def start_simulation(self):
-        self.start_button.config(state='disabled')
-        self.log_text.delete(1.0, tk.END)  # Limpiar logs
-        self.stats_label.config(text="Estadísticas: Simulando...")
+    def start_simulation(self) -> None:
+        if self.is_running:
+            return
 
-        # Crear controller
+        self.is_running = True
+        self.start_button.config(state="disabled", bg="#94a3b8")
+        self.clear_btn.config(state="disabled")
+        self.log_text.delete(1.0, tk.END)
+
+        self.status_label.config(text="Simulating...", fg="#facc15")
+
         sched_type = self.sched_var.get()
         quantum = self.quantum_var.get()
         memory_cap = self.memory_var.get()
         num_cores = max(1, self.cores_var.get())
-        self.controller = SimulationController(sched_type, quantum, memory_cap, num_cores)
+        overhead = max(0, self.overhead_var.get())
+
+        self.controller = SimulationController(
+            sched_type, quantum, memory_cap, num_cores, overhead
+        )
         self.controller.on_simulation_end = self.on_simulation_end
 
-        # Agregar procesos desde tabla
         for item in self.tree.get_children():
             values = self.tree.item(item, 'values')
             pid, burst, mem, pri = int(values[0]), int(values[1]), int(values[2]), int(values[3])
             self.controller.add_process(pid, burst, mem, pri)
 
-        # Iniciar simulación en thread
         sim_thread = threading.Thread(target=self._run_simulation_thread)
         sim_thread.start()
 
-    def _run_simulation_thread(self):
-        """Ejecuta la simulación en un thread separado."""
+    def _run_simulation_thread(self) -> None:
         stats = self.controller.start_simulation()
         self.root.after(0, self.on_simulation_end, stats)
 
-    def on_simulation_end(self, stats):
-        stats_text = f"""Estadísticas de Simulación:
-Tiempo total: {stats['total_time']:.2f}s
-Procesos completados: {stats['completed']}
-Throughput: {stats['throughput']:.2f} proc/s
-Tiempo de espera promedio: {stats['avg_waiting_time']:.2f} unidades
-Tiempo de turnaround promedio: {stats['avg_turnaround_time']:.2f} unidades
-Tiempo de respuesta promedio: {stats['avg_response_time']:.2f} unidades
-Utilización de CPU: {stats['cpu_utilization']:.2f}%"""
-        self.stats_label.config(text=stats_text)
-        logging.info("Simulación finalizada")
-        self.start_button.config(state='normal')
+    def on_simulation_end(self, stats: dict) -> None:
+        cpu_pct = stats['cpu_utilization'] * 100
+
+        stats_text = (
+            f"  Simulation Results\n"
+            f"  {'─' * 36}\n"
+            f"  Total Time:          {stats['total_time']:.2f} units\n"
+            f"  Processes Completed: {stats['completed']}\n"
+            f"  Throughput:          {stats['throughput']:.2f} proc/s\n"
+            f"  Avg Waiting Time:    {stats['avg_waiting_time']:.2f} units\n"
+            f"  Avg Turnaround Time: {stats['avg_turnaround_time']:.2f} units\n"
+            f"  Avg Response Time:   {stats['avg_response_time']:.2f} units\n"
+            f"  CPU Utilization:     {cpu_pct:.1f}%\n"
+            f"\n"
+            f"  Gantt Chart\n"
+            f"  {'─' * 36}\n"
+            f"{stats['gantt_chart']}\n"
+        )
+
+        self.stats_text.config(state="normal")
+        self.stats_text.delete(1.0, tk.END)
+        self.stats_text.insert(tk.END, stats_text)
+        self.stats_text.config(state="disabled")
+
+        self.status_label.config(text="Done", fg=THEME["bg_success"])
+        self.start_button.config(state="normal", bg=THEME["bg_button_primary"])
+        self.clear_btn.config(state="normal")
+        self.is_running = False
+
+        logging.info("Simulation finished")
+
+    def _clear_logs(self) -> None:
+        self.log_text.delete(1.0, tk.END)
 
 
 if __name__ == "__main__":
