@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Jessid Alexander Agudelo — Universidad del Valle
+# Educational use only. See LICENSE for details.
+
 from core.process import Process
 from typing import List, Tuple
 

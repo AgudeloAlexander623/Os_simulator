@@ -1,5 +1,7 @@
 # OS Simulator
 
+> **Proyecto educativo** — Jessid Alexander Agudelo · Universidad del Valle · 2026
+
 Un simulador básico de sistema operativo en Python, con procesos, scheduler múltiple, gestión de memoria y concurrencia.
 
 ## Características
@@ -21,8 +23,54 @@ Un simulador básico de sistema operativo en Python, con procesos, scheduler mú
 - main.py: Ejecuta simulación en consola (configura scheduler en utils/config.py).
 - GUI/gui.py: Interfaz gráfica para seleccionar scheduler, configurar parámetros, editar procesos y ver logs/estadísticas.
 
+## Ejemplo de salida (consola)
+
+```
+[RAM] asignado PID=1 en [0:100)
+[RAM] asignado PID=2 en [100:300)
+[Thread-1] PID=1 ejecutó 2 | restante=8
+[Thread-1] PID=2 ejecutó 2 | restante=4
+[Thread-1] PID=1 ejecutó 2 | restante=6
+[Thread-1] PID=2 ejecutó 2 | restante=2
+[RAM] liberado PID=2
+[RAM] liberado PID=1
+
+Procesos completados: 2
+Tiempo de espera promedio: 0.00
+Tiempo de turnaround promedio: 8.00
+Uso de CPU: 0.67
+
+Gantt Chart:
+Core 0: P1────P2────P1────P2────P1────P2────
+Core 1: P1────────
+```
+
 ## Configuración
 Edita `utils/config.py` para cambiar quantum, scheduler, memoria, etc.
+
+## Arquitectura
+
+```
+┌─────────────┐     ┌─────────────────────────┐
+│   main.py   │     │     GUI/gui.py          │
+│  (console)  │     │   (tkinter interface)    │
+└──────┬──────┘     └──────────┬──────────────┘
+       │                       │
+       └───────────┬───────────┘
+                   ▼
+        ┌──────────────────────┐
+        │ SimulationController │  ← MVC
+        └──┬───────┬───────┬───┘
+           ▼       ▼       ▼
+     ┌─────────┐ ┌──────┐ ┌──────────┐
+     │Scheduler│ │Memory│ │CoreWorker│ ← threads
+     └─────────┘ └──────┘ └──────────┘
+           │       ▲           │
+           ▼       │           ▼
+     ┌─────────┐ ┌──────────┐ ┌──────────┐
+     │ Process │ │ Observer │ │ GanttChart│
+     └─────────┘ └──────────┘ └──────────┘
+```
 
 ## Tests
 Ejecuta `python -m unittest discover test` para correr tests.
@@ -41,3 +89,8 @@ Ejecuta `python -m unittest discover test` para correr tests.
 - Operaciones I/O con bloqueo de procesos.
 - Sistema de archivos básico.
 - Más métricas y visualizaciones en GUI.
+
+---
+
+**Licencia:** Este proyecto es de uso exclusivamente educativo. No se permite su uso comercial. Ver [LICENSE](LICENSE).  
+**Autor:** Jessid Alexander Agudelo — Universidad del Valle (2026)

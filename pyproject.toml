@@ -8,16 +8,17 @@ version = "1.0.0"
 description = "Simulador de sistema operativo con scheduling, memoria y concurrencia"
 readme = "README.md"
 requires-python = ">=3.12"
-license = {text = "MIT"}
+license = {text = "Educational Use License"}
 authors = [
-    {name = "OS Simulator Contributors"}
+    {name = "Jessid Alexander Agudelo"},
 ]
 keywords = ["os", "scheduler", "simulator", "processes", "memory"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
+    "Intended Audience :: Education",
+    "Topic :: Education",
 ]
 
 [project.optional-dependencies]

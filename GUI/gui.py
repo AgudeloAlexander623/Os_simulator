@@ -60,10 +60,10 @@ class TextHandler(logging.Handler):
 class OSSimulatorGUI:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("OS Simulator")
-        self.root.geometry("1100x700")
+        self.root.title("OS Simulator — J. Agudelo (Univalle 2026)")
+        self.root.geometry("1200x700")
         self.root.configure(bg=THEME["bg_primary"])
-        self.root.minsize(900, 600)
+        self.root.minsize(1000, 600)
 
         self.controller: Optional[SimulationController] = None
         self.is_running = False
@@ -93,16 +93,22 @@ class OSSimulatorGUI:
         process_content.pack(fill="both", expand=True, padx=12, pady=8)
         self._build_process_table(process_content)
 
-        # ---- Bottom section: logs + stats (split) ----
+        # ---- Bottom section: memory + logs + stats ----
         bottom_paned = tk.PanedWindow(
             self.root, orient="horizontal", bg=THEME["border"], sashwidth=4
         )
         bottom_paned.pack(fill="both", expand=True, padx=12, pady=(0, 8))
 
+        # Memory panel
+        memory_card = tk.Frame(bottom_paned, bg=THEME["bg_secondary"])
+        self._build_card_inside(memory_card, "Memory Map")
+        bottom_paned.add(memory_card, minsize=200)
+        self._build_memory_panel(memory_card)
+
         # Logs panel - hijo directo del PanedWindow
         logs_card = tk.Frame(bottom_paned, bg=THEME["bg_secondary"])
         self._build_card_inside(logs_card, "Log")
-        bottom_paned.add(logs_card, minsize=300)
+        bottom_paned.add(logs_card, minsize=250)
 
         self._build_log_panel(logs_card)
 
@@ -274,6 +280,18 @@ class OSSimulatorGUI:
         logging.getLogger().addHandler(handler)
         logging.getLogger().setLevel(logging.INFO)
 
+    def _build_memory_panel(self, parent: tk.Widget) -> None:
+        content = tk.Frame(parent, bg=THEME["bg_secondary"])
+        content.pack(fill="both", expand=True, padx=12, pady=8)
+
+        self.memory_text = scrolledtext.ScrolledText(
+            content, bg=THEME["log_bg"], fg="#a5f3fc",
+            font=FONT_MONO_SMALL, relief="flat", padx=8, pady=8,
+            state="disabled",
+        )
+        self.memory_text.pack(fill="both", expand=True)
+        self.memory_text.insert(tk.END, "Run a simulation to see memory usage.")
+
     def _build_stats_panel(self, parent: tk.Widget) -> None:
         content = tk.Frame(parent, bg=THEME["bg_secondary"])
         content.pack(fill="both", expand=True, padx=12, pady=8)
@@ -291,7 +309,7 @@ class OSSimulatorGUI:
         self.status_bar.pack(fill="x", side="bottom")
 
         self.status_label = tk.Label(
-            self.status_bar, text="Ready", bg=THEME["bg_statusbar"],
+            self.status_bar, text="OS Simulator — J. Agudelo | Univalle 2026 | Ready", bg=THEME["bg_statusbar"],
             fg=THEME["text_on_dark"], font=FONT_SMALL, anchor="w", padx=12,
         )
         self.status_label.pack(side="left")
@@ -467,6 +485,24 @@ class OSSimulatorGUI:
         self.stats_text.insert(tk.END, stats_text)
         self.stats_text.config(state="disabled")
 
+        # Update memory panel
+        memory_map = self.controller.memory.memory_map()
+        fragmentation = self.controller.memory.fragmentation_external()
+        mem_text = (
+            f"  Memory Map\n"
+            f"  {'─' * 36}\n"
+            f"{memory_map}\n"
+            f"\n"
+            f"  Used:     {self.controller.memory.used}/{self.controller.memory.capacity}\n"
+            f"  Free:     {self.controller.memory.capacity - self.controller.memory.used}\n"
+            f"  Blocks:   {len(self.controller.memory.blocks)}\n"
+            f"  Frag Ext: {fragmentation} bytes\n"
+        )
+        self.memory_text.config(state="normal")
+        self.memory_text.delete(1.0, tk.END)
+        self.memory_text.insert(tk.END, mem_text)
+        self.memory_text.config(state="disabled")
+
         self.status_label.config(text="Done", fg=THEME["bg_success"])
         self.start_button.config(state="normal", bg=THEME["bg_button_primary"])
         self.clear_btn.config(state="normal")
@@ -476,6 +512,10 @@ class OSSimulatorGUI:
 
     def _clear_logs(self) -> None:
         self.log_text.delete(1.0, tk.END)
+        self.memory_text.config(state="normal")
+        self.memory_text.delete(1.0, tk.END)
+        self.memory_text.insert(tk.END, "Run a simulation to see memory usage.")
+        self.memory_text.config(state="disabled")
 
 
 if __name__ == "__main__":

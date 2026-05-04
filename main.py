@@ -1,8 +1,11 @@
+# Copyright (c) 2026 Jessid Alexander Agudelo — Universidad del Valle
+# Educational use only. See LICENSE for details.
+
 from controllers.simulation_controller import SimulationController
 from utils import config
 from utils.process_factory import sample_processes
 import logging
-import utils.logger
+import utils.logger  # Configura logging a archivo + consola
 
 
 def main():

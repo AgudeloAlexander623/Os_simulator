@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Jessid Alexander Agudelo — Universidad del Valle
+# Educational use only. See LICENSE for details.
+
 import logging
 import threading
 from typing import List, Callable
@@ -81,11 +84,10 @@ class SimulationController:
         for core in cores:
             core.join()
 
-        # Tiempo simulado teórico: total burst / num_cores (cores en paralelo)
-        total_burst = sum(p.burst_time for p in loaded_processes)
-        total_time = total_burst / self.num_cores if self.num_cores > 0 else 0
+        # Tiempo real de simulación: máximo completion_time entre procesos completados
         completed_processes = [p for p in loaded_processes if p.completion_time != -1]
         completed = len(completed_processes)
+        total_time = max(p.completion_time for p in completed_processes) if completed_processes else 0
         throughput = completed / total_time if total_time > 0 else 0
 
         # Calcular métricas promedio

@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Jessid Alexander Agudelo — Universidad del Valle
+# Educational use only. See LICENSE for details.
+
 from queue import Queue
 from typing import Optional, TYPE_CHECKING
 import heapq

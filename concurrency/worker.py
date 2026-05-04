@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Jessid Alexander Agudelo — Universidad del Valle
+# Educational use only. See LICENSE for details.
+
 import threading
 import logging
 import time
@@ -83,3 +86,7 @@ class CoreWorker(threading.Thread):
             else:
                 # Queue vacía temporalmente, otro worker va a re-encolar
                 time.sleep(0.001)
+
+    def get_total_time(self) -> int:
+        """Retorna el tiempo total de simulación de este core."""
+        return self.current_time
