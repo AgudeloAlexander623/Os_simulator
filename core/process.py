@@ -106,11 +106,14 @@ class Process:
     def request_io(self) -> int:
         """Solicita operación de I/O.
 
+        Consume la primera operación pendiente de la cola de I/O.
+        Si no hay operaciones, retorna 0.
+
         Returns:
-            int: Tiempo de I/O requerido, 0 si no hay operaciones pendientes.
+            int: Tiempo de I/O consumido, 0 si no hay operaciones.
         """
         if self.io_operations:
-            io_time = self.io_operations[0]
+            io_time = self.io_operations.pop(0)
             self.state = ProcessState.BLOCKED
             self.io_blocked_time = io_time
             self.total_io_time += io_time

@@ -67,14 +67,26 @@ class SimulationController:
     def start_simulation(self) -> dict:
         loaded_processes = []
 
+        # Crear directorio raíz para procesos en el filesystem
+        self.filesystem.mkdir("/processes")
+
         # Ordenar procesos por arrival_time
         sorted_processes = sorted(self.processes, key=lambda p: p.arrival_time)
 
-        # Agregar todos los procesos a memoria
+        # Agregar todos los procesos a memoria y crear su directorio en el FS
         for p in sorted_processes:
             try:
                 self.memory.allocate(p)
+                # Cada proceso tiene su propio directorio y un log inicial
+                proc_dir = f"/processes/P{p.pid}"
+                self.filesystem.mkdir(proc_dir, pid=p.pid)
+                self.filesystem.create_file(
+                    f"{proc_dir}/status.log",
+                    f"PID={p.pid} | Burst={p.burst_time} | Memory={p.memory} | Priority={p.priority} | Arrival={p.arrival_time}",
+                    pid=p.pid,
+                )
                 loaded_processes.append(p)
+                logging.info(f"[FS] Directorio creado para PID={p.pid}")
             except Exception as e:
                 logging.warning(f"Error al cargar proceso {p.pid}: {e}")
 
@@ -94,6 +106,8 @@ class SimulationController:
         # Thread para agregar procesos escalonados
         staggered = [p for p in loaded_processes if p.arrival_time > 0]
         if staggered:
+            self.scheduler.submission_complete = False
+
             def submit_staggered():
                 import time
                 for p in staggered:
@@ -104,8 +118,6 @@ class SimulationController:
 
             submitter = threading.Thread(target=submit_staggered)
             submitter.start()
-        else:
-            self.scheduler.submission_complete = True
 
         # Iniciar workers
         for core in cores:
@@ -146,9 +158,24 @@ class SimulationController:
                 "waiting_time": p.waiting_time,
                 "turnaround_time": p.turnaround_time,
                 "response_time": p.response_time,
+                "total_io_time": p.total_io_time,
             }
             for p in loaded_processes
         ]
+
+        # Escribir métricas finales en el filesystem
+        for p in loaded_processes:
+            if p.completion_time != -1:
+                log_content = (
+                    f"PID={p.pid}\n"
+                    f"Estado: COMPLETED\n"
+                    f"Burst Time: {p.burst_time}\n"
+                    f"Waiting Time: {p.waiting_time:.2f}\n"
+                    f"Turnaround Time: {p.turnaround_time:.2f}\n"
+                    f"Response Time: {p.response_time:.2f}\n"
+                    f"Total I/O Time: {p.total_io_time}\n"
+                )
+                self.filesystem.write_file(f"/processes/P{p.pid}/status.log", log_content, pid=p.pid)
 
         stats = {
             "total_time": total_time,

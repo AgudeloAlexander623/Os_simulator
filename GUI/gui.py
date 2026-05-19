@@ -330,7 +330,7 @@ class OSSimulatorGUI:
             font=FONT_BOLD,
         ).pack(anchor="w", pady=(0, 4))
 
-        columns = ("PID", "Burst", "Priority", "Waiting", "Turnaround", "Response")
+        columns = ("PID", "Burst", "Priority", "Waiting", "Turnaround", "Response", "I/O")
         self.process_metrics_tree = ttk.Treeview(
             process_metrics_frame, columns=columns, show="headings", height=6,
         )
@@ -338,7 +338,7 @@ class OSSimulatorGUI:
 
         col_widths = {
             "PID": 50, "Burst": 60, "Priority": 60,
-            "Waiting": 80, "Turnaround": 90, "Response": 90,
+            "Waiting": 80, "Turnaround": 90, "Response": 90, "I/O": 60,
         }
         for col in columns:
             self.process_metrics_tree.heading(col, text=col)
@@ -387,8 +387,8 @@ class OSSimulatorGUI:
         self.proc_count_label.config(text=f"{count} process{'es' if count != 1 else ''}")
 
     def _add_sample_processes(self) -> None:
-        for pid, burst, mem, pri in sample_processes():
-            self.tree.insert("", "end", values=(pid, burst, mem, pri))
+        for pid, burst, mem, pri, arrival in sample_processes():
+            self.tree.insert("", "end", values=(pid, burst, mem, pri, arrival, 0))
         self._update_proc_count()
 
     def _reset_processes(self) -> None:
@@ -602,6 +602,7 @@ class OSSimulatorGUI:
                     f'{m["waiting_time"]:.2f}',
                     f'{m["turnaround_time"]:.2f}',
                     f'{m["response_time"]:.2f}',
+                    m["total_io_time"],
                 ),
             )
 

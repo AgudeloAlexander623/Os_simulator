@@ -42,6 +42,7 @@ class Memory(Observable):
         num_frames (int): Número total de frames.
         frames (List[Optional[int]]): Frames físicos (None = libre).
         page_tables (Dict[int, PageTable]): Tablas de páginas por PID.
+        global_fifo (List[int]): Cola FIFO global para reemplazo de páginas.
     """
 
     def __init__(self, capacity: int, page_size: int = 50):
@@ -66,24 +67,28 @@ class Memory(Observable):
         self.frames: List[Optional[int]] = [None] * self.num_frames
         self.page_tables: Dict[int, PageTable] = {}
         self.used_frames = 0
+        # Cola FIFO global: guarda los índices de frame en orden de carga
+        self.global_fifo: List[int] = []
 
     def allocate(self, process: 'Process') -> bool:
         """Asigna memoria para un proceso usando paginación.
+
+        Si no hay frames libres suficientes, usa reemplazo FIFO
+        para desalojar páginas de otros procesos.
 
         Args:
             process (Process): Proceso a asignar.
 
         Returns:
             bool: True si asignado.
-
-        Raises:
-            MemoryInsufficientError: Si no hay frames suficientes.
         """
         num_pages = (process.memory + self.page_size - 1) // self.page_size
 
+        # Si no hay espacio, intentar reemplazo FIFO
         if self.used_frames + num_pages > self.num_frames:
-            logging.warning(f"Memoria insuficiente para PID={process.pid}")
-            raise MemoryInsufficientError(f"No hay suficiente memoria para PID={process.pid}")
+            if not self._evict_pages(num_pages):
+                logging.warning(f"Memoria insuficiente para PID={process.pid}")
+                raise MemoryInsufficientError(f"No hay suficiente memoria para PID={process.pid}")
 
         page_table = PageTable(num_pages)
         allocated = 0
@@ -95,6 +100,7 @@ class Memory(Observable):
                 page_table.entries[page_idx].frame = i
                 page_table.entries[page_idx].valid = True
                 page_table.fifo_queue.append(i)
+                self.global_fifo.append(i)
                 allocated += 1
                 page_idx += 1
                 if allocated == num_pages:
@@ -105,6 +111,40 @@ class Memory(Observable):
         logging.info(f"[RAM] asignado PID={process.pid} en {num_pages} páginas ({process.memory} bytes)")
         self.notify({"type": "allocated", "process": process, "used": self.used_frames})
         return True
+
+    def _evict_pages(self, needed: int) -> bool:
+        """Desaloja páginas usando el algoritmo FIFO.
+
+        Solo desaloja páginas de procesos que ya fueron liberados
+        (huérfanos en la cola FIFO). No desaloja de procesos activos
+        porque el simulador no maneja page faults.
+
+        Args:
+            needed (int): Número de frames que se necesitan.
+
+        Returns:
+            bool: True si se pudieron desalojar suficientes páginas.
+        """
+        freed = 0
+        while freed < needed and self.global_fifo:
+            frame_idx = self.global_fifo.pop(0)
+            victim_pid = self.frames[frame_idx]
+
+            if victim_pid is None:
+                continue
+
+            # Solo desalojar si el proceso ya no está activo
+            if victim_pid not in self.page_tables:
+                self.frames[frame_idx] = None
+                freed += 1
+                continue
+
+            # El proceso aún está activo, no podemos desalojar
+            # Volver a poner el frame en la cola para mantener el orden
+            self.global_fifo.append(frame_idx)
+            break
+
+        return freed >= needed
 
     def free(self, process: 'Process') -> None:
         """Libera memoria de un proceso.
@@ -125,6 +165,9 @@ class Memory(Observable):
         for i in range(self.num_frames):
             if self.frames[i] == process.pid:
                 self.frames[i] = None
+                # Limpiar también de la cola FIFO global
+                if i in self.global_fifo:
+                    self.global_fifo.remove(i)
                 freed += 1
 
         del self.page_tables[process.pid]

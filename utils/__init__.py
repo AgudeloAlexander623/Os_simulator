@@ -9,8 +9,8 @@ from utils.config import (
     LOG_LEVEL,
 )
 from utils.observer import Observable
-from utils.gantt import GanttChart, build_gantt_from_processes
-from utils.process_factory import sample_processes, processes_from_tuples
+from utils.gantt import GanttChart
+from utils.process_factory import sample_processes
 
 __all__ = [
     "QUANTUM",
@@ -21,7 +21,5 @@ __all__ = [
     "LOG_LEVEL",
     "Observable",
     "GanttChart",
-    "build_gantt_from_processes",
     "sample_processes",
-    "processes_from_tuples",
 ]

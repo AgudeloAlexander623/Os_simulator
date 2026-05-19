@@ -45,20 +45,11 @@ class CoreWorker(threading.Thread):
 
     def run(self) -> None:
         """Ejecuta el loop de procesamiento de procesos."""
-        idle_cycles = 0
-        max_idle_cycles = 50
-
         while True:
             with scheduler_lock:
                 no_active = not self.scheduler.has_active_processes()
                 if self.scheduler.submission_complete and no_active:
                     break
-                if not self.scheduler.submission_complete and no_active:
-                    idle_cycles += 1
-                    if idle_cycles >= max_idle_cycles:
-                        break
-                else:
-                    idle_cycles = 0
                 process = self.scheduler.get_process()
 
             if process:
@@ -99,12 +90,13 @@ class CoreWorker(threading.Thread):
                     self.current_time += io_time
                     process.state = ProcessState.READY
                     with scheduler_lock:
-                        self.scheduler._enqueue(process)
+                        self.scheduler.add_to_io_queue(process)
                 elif process.state == ProcessState.READY:
                     with scheduler_lock:
                         self.scheduler._enqueue(process)
             else:
-                time.sleep(0.001)
+                # Cola vacía pero pueden llegar más procesos
+                time.sleep(0.05)
 
     def get_total_time(self) -> int:
         """Retorna el tiempo total de simulación de este core."""

@@ -16,11 +16,18 @@ class Scheduler:
     def __init__(self, quantum: int):
         """Inicializa el scheduler."""
         self.quantum = quantum
-        self.queue: Queue['Process'] = Queue()
+        self._queue: Optional[Queue['Process']] = None
         self.io_queue: Queue['Process'] = Queue()
         self._active_count = 0
         self._count_lock = threading.Lock()
-        self.submission_complete = False
+        self.submission_complete = True
+
+    @property
+    def queue(self) -> Queue['Process']:
+        """Cola de procesos listos. Se crea bajo demanda."""
+        if self._queue is None:
+            self._queue = Queue()
+        return self._queue
 
     def add_process(self, process: 'Process') -> None:
         """Agrega un proceso nuevo a la cola (incrementa contador activo)."""
@@ -33,14 +40,22 @@ class Scheduler:
         self.queue.put(process)
 
     def get_process(self) -> Optional['Process']:
-        """Obtiene el próximo proceso."""
-        if self.queue.empty():
+        """Obtiene el próximo proceso.
+
+        Prioriza procesos que vienen de la cola de I/O, ya que
+        llevan esperando y es justo darles turno primero.
+        """
+        if not self.io_queue.empty():
+            return self.io_queue.get()
+        if self._queue is None or self._queue.empty():
             return None
-        return self.queue.get()
+        return self._queue.get()
 
     def has_processes(self) -> bool:
         """Verifica si hay procesos pendientes en la cola."""
-        return not self.queue.empty()
+        if self._queue is None:
+            return not self.io_queue.empty()
+        return not self._queue.empty() or not self.io_queue.empty()
 
     def mark_terminated(self) -> None:
         """Marca un proceso como terminado, decrementando el contador activo."""
@@ -53,14 +68,8 @@ class Scheduler:
             return self._active_count > 0
 
     def add_to_io_queue(self, process: 'Process') -> None:
-        """Agrega un proceso a la cola de I/O."""
+        """Agrega un proceso a la cola de I/O después de completar su operación."""
         self.io_queue.put(process)
-
-    def get_io_process(self) -> Optional['Process']:
-        """Obtiene el próximo proceso de la cola de I/O."""
-        if self.io_queue.empty():
-            return None
-        return self.io_queue.get()
 
     def has_io_processes(self) -> bool:
         """Verifica si hay procesos en la cola de I/O."""
@@ -75,9 +84,10 @@ class FCFSScheduler(Scheduler):
 
 class SJFScheduler(Scheduler):
     """Shortest Job First: Prioriza procesos con menor remaining_time."""
+
     def __init__(self, quantum: int):
         super().__init__(quantum)
-        self.heap = []
+        self.heap: list = []
 
     def add_process(self, process: 'Process') -> None:
         with self._count_lock:
@@ -85,13 +95,18 @@ class SJFScheduler(Scheduler):
         self._enqueue(process)
 
     def _enqueue(self, process: 'Process') -> None:
+        # Actualizar el heap: remover proceso existente si ya está
         self.heap = [(rt, p) for rt, p in self.heap if p.pid != process.pid]
+        heapq.heapify(self.heap)
         heapq.heappush(self.heap, (process.remaining_time, process))
 
     def has_processes(self) -> bool:
-        return len(self.heap) > 0
+        return len(self.heap) > 0 or self.has_io_processes()
 
     def get_process(self) -> Optional['Process']:
+        # Primero revisar la cola de I/O (procesos que ya esperaron)
+        if self.has_io_processes():
+            return self.io_queue.get()
         if not self.heap:
             return None
         return heapq.heappop(self.heap)[1]
@@ -99,9 +114,10 @@ class SJFScheduler(Scheduler):
 
 class PriorityScheduler(Scheduler):
     """Priority Scheduling: Prioriza por prioridad (menor número = mayor prioridad)."""
+
     def __init__(self, quantum: int):
         super().__init__(quantum)
-        self.heap = []
+        self.heap: list = []
 
     def add_process(self, process: 'Process') -> None:
         with self._count_lock:
@@ -113,9 +129,12 @@ class PriorityScheduler(Scheduler):
         heapq.heappush(self.heap, (priority, process))
 
     def has_processes(self) -> bool:
-        return len(self.heap) > 0
+        return len(self.heap) > 0 or self.has_io_processes()
 
     def get_process(self) -> Optional['Process']:
+        # Primero revisar la cola de I/O (procesos que ya esperaron)
+        if self.has_io_processes():
+            return self.io_queue.get()
         if not self.heap:
             return None
         return heapq.heappop(self.heap)[1]

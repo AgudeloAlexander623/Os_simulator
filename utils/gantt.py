@@ -2,7 +2,6 @@
 # Educational use only. See LICENSE for details.
 
 from typing import List, Dict, Optional
-from core.process import Process
 
 
 class GanttChart:
@@ -57,29 +56,3 @@ class GanttChart:
             lines.append(f"Core {core_id}: " + "".join(row))
 
         return "\n".join(lines)
-
-
-def build_gantt_from_processes(processes: List[Process], num_cores: int, total_time: int) -> GanttChart:
-    """Construye un Gantt chart aproximado a partir de los tiempos de los procesos.
-
-    Nota: Esto es una aproximación basada en completion_time. Para un Gantt
-    preciso, se debe usar GanttChart.record() durante la simulación.
-
-    Args:
-        processes: Lista de procesos completados.
-        num_cores: Número de cores.
-        total_time: Tiempo total de simulación.
-
-    Returns:
-        GanttChart renderizable.
-    """
-    chart = GanttChart()
-    sorted_procs = sorted(processes, key=lambda p: p.start_time if p.start_time >= 0 else float('inf'))
-
-    for i, proc in enumerate(sorted_procs):
-        core_id = i % num_cores
-        if proc.start_time >= 0 and proc.completion_time >= 0:
-            for t in range(proc.start_time, proc.completion_time):
-                chart.record(t, core_id, proc.pid)
-
-    return chart
