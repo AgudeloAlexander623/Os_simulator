@@ -17,8 +17,10 @@ class Scheduler:
         """Inicializa el scheduler."""
         self.quantum = quantum
         self.queue: Queue['Process'] = Queue()
+        self.io_queue: Queue['Process'] = Queue()
         self._active_count = 0
         self._count_lock = threading.Lock()
+        self.submission_complete = False
 
     def add_process(self, process: 'Process') -> None:
         """Agrega un proceso nuevo a la cola (incrementa contador activo)."""
@@ -49,6 +51,20 @@ class Scheduler:
         """Verifica si quedan procesos activos (en cola o ejecutando)."""
         with self._count_lock:
             return self._active_count > 0
+
+    def add_to_io_queue(self, process: 'Process') -> None:
+        """Agrega un proceso a la cola de I/O."""
+        self.io_queue.put(process)
+
+    def get_io_process(self) -> Optional['Process']:
+        """Obtiene el próximo proceso de la cola de I/O."""
+        if self.io_queue.empty():
+            return None
+        return self.io_queue.get()
+
+    def has_io_processes(self) -> bool:
+        """Verifica si hay procesos en la cola de I/O."""
+        return not self.io_queue.empty()
 
 
 class FCFSScheduler(Scheduler):

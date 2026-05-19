@@ -184,7 +184,7 @@ class TestIntegrationMemoryObserver(unittest.TestCase):
     """Tests de integración: Memory con Observer pattern."""
 
     def test_memory_notifies_on_allocate_and_free(self):
-        memory = Memory(500)
+        memory = Memory(500, 50)
         events = []
         memory.attach(lambda e: events.append(e))
 
@@ -192,7 +192,7 @@ class TestIntegrationMemoryObserver(unittest.TestCase):
         memory.allocate(process)
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]['type'], 'allocated')
-        self.assertEqual(events[0]['used'], 100)
+        self.assertEqual(events[0]['used'], 2)
 
         memory.free(process)
         self.assertEqual(len(events), 2)

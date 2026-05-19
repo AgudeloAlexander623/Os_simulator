@@ -41,20 +41,31 @@ class CoreWorker(threading.Thread):
         self.core_id = core_id
         self.gantt_chart = gantt_chart
         self.current_time = 0
+        self.context_switches = 0
 
     def run(self) -> None:
         """Ejecuta el loop de procesamiento de procesos."""
+        idle_cycles = 0
+        max_idle_cycles = 50
+
         while True:
-            # Obtener proceso del scheduler (sección crítica breve)
             with scheduler_lock:
-                if not self.scheduler.has_active_processes():
+                no_active = not self.scheduler.has_active_processes()
+                if self.scheduler.submission_complete and no_active:
                     break
+                if not self.scheduler.submission_complete and no_active:
+                    idle_cycles += 1
+                    if idle_cycles >= max_idle_cycles:
+                        break
+                else:
+                    idle_cycles = 0
                 process = self.scheduler.get_process()
 
             if process:
                 # Aplicar context switch overhead (excepto en la primera ejecución del core)
                 if self.current_time > 0 and self.context_switch_overhead > 0:
                     self.current_time += self.context_switch_overhead
+                    self.context_switches += 1
 
                 # Setear start_time y first_scheduled_time si es la primera ejecución
                 if process.start_time == -1:
@@ -80,13 +91,25 @@ class CoreWorker(threading.Thread):
                     self.scheduler.mark_terminated()
                     with memory_lock:
                         self.memory.free(process)
+                elif process.state == ProcessState.BLOCKED:
+                    io_time = process.request_io()
+                    logging.info(
+                        f"[{self.name}] PID={process.pid} bloqueado por I/O durante {io_time} unidades"
+                    )
+                    self.current_time += io_time
+                    process.state = ProcessState.READY
+                    with scheduler_lock:
+                        self.scheduler._enqueue(process)
                 elif process.state == ProcessState.READY:
                     with scheduler_lock:
                         self.scheduler._enqueue(process)
             else:
-                # Queue vacía temporalmente, otro worker va a re-encolar
                 time.sleep(0.001)
 
     def get_total_time(self) -> int:
         """Retorna el tiempo total de simulación de este core."""
         return self.current_time
+
+    def get_context_switches(self) -> int:
+        """Retorna el número de context switches en este core."""
+        return self.context_switches

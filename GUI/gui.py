@@ -38,7 +38,6 @@ THEME = {
     "stats_fg": "#1e293b",
 }
 
-FONT_BASE = ("Segoe UI", 10)
 FONT_BOLD = ("Segoe UI", 10, "bold")
 FONT_TITLE = ("Segoe UI", 14, "bold")
 FONT_SMALL = ("Segoe UI", 9)
@@ -118,6 +117,13 @@ class OSSimulatorGUI:
         bottom_paned.add(stats_card, minsize=300)
 
         self._build_stats_panel(stats_card)
+
+        # FS panel
+        fs_card = tk.Frame(bottom_paned, bg=THEME["bg_secondary"])
+        self._build_card_inside(fs_card, "File System")
+        bottom_paned.add(fs_card, minsize=250)
+
+        self._build_fs_panel(fs_card)
 
         # ---- Status bar ----
         self._build_statusbar()
@@ -228,8 +234,7 @@ class OSSimulatorGUI:
         self.clear_btn.pack(side="left")
 
     def _build_process_table(self, parent: tk.Widget) -> None:
-        # Table
-        columns = ("PID", "Burst", "Memory", "Priority")
+        columns = ("PID", "Burst", "Memory", "Priority", "Arrival", "I/O")
         self.tree = ttk.Treeview(
             parent, columns=columns, show="headings", height=8
         )
@@ -237,7 +242,7 @@ class OSSimulatorGUI:
 
         for col in columns:
             self.tree.heading(col, text=col)
-            widths = {"PID": 50, "Burst": 70, "Memory": 80, "Priority": 70}
+            widths = {"PID": 50, "Burst": 70, "Memory": 80, "Priority": 70, "Arrival": 70, "I/O": 60}
             self.tree.column(col, width=widths.get(col, 80), anchor="center")
 
         # Button bar
@@ -292,6 +297,18 @@ class OSSimulatorGUI:
         self.memory_text.pack(fill="both", expand=True)
         self.memory_text.insert(tk.END, "Run a simulation to see memory usage.")
 
+    def _build_fs_panel(self, parent: tk.Widget) -> None:
+        content = tk.Frame(parent, bg=THEME["bg_secondary"])
+        content.pack(fill="both", expand=True, padx=12, pady=8)
+
+        self.fs_text = scrolledtext.ScrolledText(
+            content, bg=THEME["log_bg"], fg="#a5f3fc",
+            font=FONT_MONO_SMALL, relief="flat", padx=8, pady=8,
+            state="disabled",
+        )
+        self.fs_text.pack(fill="both", expand=True)
+        self.fs_text.insert(tk.END, "Run a simulation to see file system.")
+
     def _build_stats_panel(self, parent: tk.Widget) -> None:
         content = tk.Frame(parent, bg=THEME["bg_secondary"])
         content.pack(fill="both", expand=True, padx=12, pady=8)
@@ -299,10 +316,33 @@ class OSSimulatorGUI:
         self.stats_text = scrolledtext.ScrolledText(
             content, bg=THEME["stats_bg"], fg=THEME["stats_fg"],
             font=FONT_MONO, relief="flat", padx=12, pady=12,
-            state="disabled",
+            state="disabled", height=8,
         )
-        self.stats_text.pack(fill="both", expand=True)
+        self.stats_text.pack(fill="x", expand=False)
         self.stats_text.insert(tk.END, "Run a simulation to see statistics here.")
+
+        process_metrics_frame = tk.Frame(content, bg=THEME["bg_secondary"])
+        process_metrics_frame.pack(fill="both", expand=True, pady=(8, 0))
+
+        tk.Label(
+            process_metrics_frame, text="Per-Process Metrics",
+            bg=THEME["bg_secondary"], fg=THEME["text_primary"],
+            font=FONT_BOLD,
+        ).pack(anchor="w", pady=(0, 4))
+
+        columns = ("PID", "Burst", "Priority", "Waiting", "Turnaround", "Response")
+        self.process_metrics_tree = ttk.Treeview(
+            process_metrics_frame, columns=columns, show="headings", height=6,
+        )
+        self.process_metrics_tree.pack(fill="both", expand=True)
+
+        col_widths = {
+            "PID": 50, "Burst": 60, "Priority": 60,
+            "Waiting": 80, "Turnaround": 90, "Response": 90,
+        }
+        for col in columns:
+            self.process_metrics_tree.heading(col, text=col)
+            self.process_metrics_tree.column(col, width=col_widths[col], anchor="center")
 
     def _build_statusbar(self) -> None:
         self.status_bar = tk.Frame(self.root, bg=THEME["bg_statusbar"], height=28)
@@ -365,7 +405,7 @@ class OSSimulatorGUI:
         win.grab_set()
 
         fields_data = [
-            ("PID", 0), ("Burst Time", 0), ("Memory", 0), ("Priority", 0)
+            ("PID", 0), ("Burst Time", 0), ("Memory", 0), ("Priority", 0), ("Arrival Time", 0), ("I/O Time", 0)
         ]
         entries = []
 
@@ -386,7 +426,7 @@ class OSSimulatorGUI:
         def save():
             try:
                 values = [int(e.get()) for e in entries]
-                pid, burst, mem, pri = values
+                pid, burst, mem, pri, arrival, io_time = values
 
                 if pid <= 0:
                     messagebox.showerror("Error", "PID must be positive", parent=win)
@@ -400,13 +440,19 @@ class OSSimulatorGUI:
                 if pri < 0:
                     messagebox.showerror("Error", "Priority cannot be negative", parent=win)
                     return
+                if arrival < 0:
+                    messagebox.showerror("Error", "Arrival time cannot be negative", parent=win)
+                    return
+                if io_time < 0:
+                    messagebox.showerror("Error", "I/O time cannot be negative", parent=win)
+                    return
 
                 for item in self.tree.get_children():
                     if self.tree.item(item, 'values')[0] == pid:
                         messagebox.showerror("Error", f"PID {pid} already exists", parent=win)
                         return
 
-                self.tree.insert("", "end", values=values)
+                self.tree.insert("", "end", values=(pid, burst, mem, pri, arrival, io_time))
                 self._update_proc_count()
                 win.destroy()
             except ValueError:
@@ -417,7 +463,7 @@ class OSSimulatorGUI:
             bg=THEME["bg_button_primary"], fg=THEME["text_on_primary"],
             font=FONT_SMALL, relief="flat", bd=0, padx=20, pady=6,
             activebackground="#1d4ed8", cursor="hand2",
-        ).grid(row=4, column=0, columnspan=2, pady=12)
+        ).grid(row=6, column=0, columnspan=2, pady=12)
 
         win.bind("<Return>", lambda _: save())
 
@@ -436,6 +482,9 @@ class OSSimulatorGUI:
         self.clear_btn.config(state="disabled")
         self.log_text.delete(1.0, tk.END)
 
+        for item in self.process_metrics_tree.get_children():
+            self.process_metrics_tree.delete(item)
+
         self.status_label.config(text="Simulating...", fg="#facc15")
 
         sched_type = self.sched_var.get()
@@ -451,8 +500,8 @@ class OSSimulatorGUI:
 
         for item in self.tree.get_children():
             values = self.tree.item(item, 'values')
-            pid, burst, mem, pri = int(values[0]), int(values[1]), int(values[2]), int(values[3])
-            self.controller.add_process(pid, burst, mem, pri)
+            pid, burst, mem, pri, arrival, io_time = int(values[0]), int(values[1]), int(values[2]), int(values[3]), int(values[4]), int(values[5])
+            self.controller.add_process(pid, burst, mem, pri, arrival, io_time)
 
         sim_thread = threading.Thread(target=self._run_simulation_thread)
         sim_thread.start()
@@ -470,6 +519,7 @@ class OSSimulatorGUI:
             f"  Total Time:          {stats['total_time']:.2f} units\n"
             f"  Processes Completed: {stats['completed']}\n"
             f"  Throughput:          {stats['throughput']:.2f} proc/s\n"
+            f"  Context Switches:    {stats['context_switches']}\n"
             f"  Avg Waiting Time:    {stats['avg_waiting_time']:.2f} units\n"
             f"  Avg Turnaround Time: {stats['avg_turnaround_time']:.2f} units\n"
             f"  Avg Response Time:   {stats['avg_response_time']:.2f} units\n"
@@ -488,27 +538,72 @@ class OSSimulatorGUI:
         # Update memory panel
         memory_map = self.controller.memory.memory_map()
         fragmentation = self.controller.memory.fragmentation_external()
+        frag_pct = (fragmentation / self.controller.memory.capacity * 100) if self.controller.memory.capacity > 0 else 0
+
+        page_tables_text = []
+        for pid in self.controller.memory.page_tables:
+            page_tables_text.append(self.controller.memory.page_table_str(pid))
+
         mem_text = (
             f"  Memory Map\n"
             f"  {'─' * 36}\n"
             f"{memory_map}\n"
             f"\n"
-            f"  Used:     {self.controller.memory.used}/{self.controller.memory.capacity}\n"
-            f"  Free:     {self.controller.memory.capacity - self.controller.memory.used}\n"
-            f"  Blocks:   {len(self.controller.memory.blocks)}\n"
-            f"  Frag Ext: {fragmentation} bytes\n"
+            f"  Used:     {self.controller.memory.used_frames}/{self.controller.memory.num_frames} frames\n"
+            f"  Free:     {self.controller.memory.num_frames - self.controller.memory.used_frames} frames\n"
+            f"  Page Size: {self.controller.memory.page_size} bytes\n"
+            f"  Frag Ext: {fragmentation} bytes ({frag_pct:.1f}%)\n"
+            f"\n"
+            f"  Page Tables\n"
+            f"  {'─' * 36}\n"
+            f"{'\n'.join(page_tables_text) if page_tables_text else 'No page tables'}\n"
         )
         self.memory_text.config(state="normal")
         self.memory_text.delete(1.0, tk.END)
         self.memory_text.insert(tk.END, mem_text)
         self.memory_text.config(state="disabled")
 
+        # Update FS panel
+        fs_tree = self.controller.filesystem.tree()
+        fs_used = self.controller.filesystem.used
+        fs_cap = self.controller.filesystem.capacity
+        fs_text = (
+            f"  File System Tree\n"
+            f"  {'─' * 36}\n"
+            f"📁 /\n"
+            f"{fs_tree}\n"
+            f"\n"
+            f"  Used: {fs_used}/{fs_cap} bytes\n"
+        )
+        self.fs_text.config(state="normal")
+        self.fs_text.delete(1.0, tk.END)
+        self.fs_text.insert(tk.END, fs_text)
+        self.fs_text.config(state="disabled")
+
         self.status_label.config(text="Done", fg=THEME["bg_success"])
         self.start_button.config(state="normal", bg=THEME["bg_button_primary"])
         self.clear_btn.config(state="normal")
         self.is_running = False
 
+        self._update_process_metrics_table(stats.get("process_metrics", []))
+
         logging.info("Simulation finished")
+
+    def _update_process_metrics_table(self, metrics: list) -> None:
+        for item in self.process_metrics_tree.get_children():
+            self.process_metrics_tree.delete(item)
+
+        for m in metrics:
+            self.process_metrics_tree.insert(
+                "", "end", values=(
+                    m["pid"],
+                    m["burst_time"],
+                    m["priority"],
+                    f'{m["waiting_time"]:.2f}',
+                    f'{m["turnaround_time"]:.2f}',
+                    f'{m["response_time"]:.2f}',
+                ),
+            )
 
     def _clear_logs(self) -> None:
         self.log_text.delete(1.0, tk.END)
@@ -516,6 +611,16 @@ class OSSimulatorGUI:
         self.memory_text.delete(1.0, tk.END)
         self.memory_text.insert(tk.END, "Run a simulation to see memory usage.")
         self.memory_text.config(state="disabled")
+        self.fs_text.config(state="normal")
+        self.fs_text.delete(1.0, tk.END)
+        self.fs_text.insert(tk.END, "Run a simulation to see file system.")
+        self.fs_text.config(state="disabled")
+        self.stats_text.config(state="normal")
+        self.stats_text.delete(1.0, tk.END)
+        self.stats_text.insert(tk.END, "Run a simulation to see statistics here.")
+        self.stats_text.config(state="disabled")
+        for item in self.process_metrics_tree.get_children():
+            self.process_metrics_tree.delete(item)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,8 @@ from typing import List, Callable
 from core.process import Process
 from core.scheduler import Scheduler, FCFSScheduler, SJFScheduler, PriorityScheduler, RoundRobinScheduler
 from core.memory import Memory
+from core.filesystem import FileSystem
+from utils import config
 from concurrency.worker import CoreWorker
 from utils.gantt import GanttChart
 
@@ -25,7 +27,8 @@ class SimulationController:
             context_switch_overhead (int): Costo de context switch.
         """
         self.scheduler = self._create_scheduler(scheduler_type, quantum)
-        self.memory = Memory(memory_cap)
+        self.memory = Memory(memory_cap, getattr(config, 'PAGE_SIZE', 50))
+        self.filesystem = FileSystem(getattr(config, 'FS_CAPACITY', 1000))
         self.num_cores = num_cores
         self.context_switch_overhead = context_switch_overhead
         self.processes: List[Process] = []
@@ -44,7 +47,7 @@ class SimulationController:
         else:
             raise ValueError(f"Tipo de scheduler desconocido: {sched_type}")
 
-    def add_process(self, pid: int, burst: int, mem: int, pri: int = 0) -> None:
+    def add_process(self, pid: int, burst: int, mem: int, pri: int = 0, arrival: int = 0, io_time: int = 0) -> None:
         """Agrega un proceso.
 
         Args:
@@ -52,26 +55,34 @@ class SimulationController:
             burst (int): Burst time.
             mem (int): Memoria.
             pri (int): Prioridad.
+            arrival (int): Tiempo de llegada.
+            io_time (int): Tiempo de I/O después de cada ejecución.
         """
         process = Process(pid, burst, mem, pri)
+        process.arrival_time = arrival
+        if io_time > 0:
+            process.io_operations = [io_time]
         self.processes.append(process)
 
     def start_simulation(self) -> dict:
-        """Inicia la simulación en un thread.
-
-        Returns:
-            dict: Estadísticas calculadas al final de la simulación.
-        """
         loaded_processes = []
 
-        # Cargar procesos
-        for p in self.processes:
+        # Ordenar procesos por arrival_time
+        sorted_processes = sorted(self.processes, key=lambda p: p.arrival_time)
+
+        # Agregar todos los procesos a memoria
+        for p in sorted_processes:
             try:
                 self.memory.allocate(p)
-                self.scheduler.add_process(p)
                 loaded_processes.append(p)
             except Exception as e:
                 logging.warning(f"Error al cargar proceso {p.pid}: {e}")
+
+        # Agregar procesos con arrival_time=0 al scheduler
+        for p in loaded_processes:
+            if p.arrival_time == 0:
+                self.scheduler.add_process(p)
+                logging.info(f"[Controller] PID={p.pid} llegó en t=0")
 
         # Crear workers
         gantt = GanttChart()
@@ -79,8 +90,30 @@ class SimulationController:
             CoreWorker(self.scheduler, self.memory, self.context_switch_overhead, core_id=i, gantt_chart=gantt)
             for i in range(self.num_cores)
         ]
+
+        # Thread para agregar procesos escalonados
+        staggered = [p for p in loaded_processes if p.arrival_time > 0]
+        if staggered:
+            def submit_staggered():
+                import time
+                for p in staggered:
+                    time.sleep(p.arrival_time * 0.01)
+                    self.scheduler.add_process(p)
+                    logging.info(f"[Controller] PID={p.pid} llegó en t={p.arrival_time}")
+                self.scheduler.submission_complete = True
+
+            submitter = threading.Thread(target=submit_staggered)
+            submitter.start()
+        else:
+            self.scheduler.submission_complete = True
+
+        # Iniciar workers
         for core in cores:
             core.start()
+
+        # Esperar a que terminen
+        if staggered:
+            submitter.join()
         for core in cores:
             core.join()
 
@@ -101,7 +134,21 @@ class SimulationController:
         # CPU utilization (tiempo total ejecutado / (tiempo simulado * num_cores))
         total_burst = sum(p.burst_time for p in loaded_processes)
         cpu_utilization = total_burst / (total_time * self.num_cores) if total_time > 0 else 0
-        cpu_utilization = min(cpu_utilization, 1.0)  # Cap a 100%
+        cpu_utilization = min(cpu_utilization, 1.0)
+
+        total_context_switches = sum(core.get_context_switches() for core in cores)
+
+        process_metrics = [
+            {
+                "pid": p.pid,
+                "burst_time": p.burst_time,
+                "priority": p.priority,
+                "waiting_time": p.waiting_time,
+                "turnaround_time": p.turnaround_time,
+                "response_time": p.response_time,
+            }
+            for p in loaded_processes
+        ]
 
         stats = {
             "total_time": total_time,
@@ -111,7 +158,9 @@ class SimulationController:
             "avg_turnaround_time": avg_turnaround,
             "avg_response_time": avg_response,
             "cpu_utilization": cpu_utilization,
+            "context_switches": total_context_switches,
             "gantt_chart": gantt.render(self.num_cores),
+            "process_metrics": process_metrics,
         }
         if self.on_simulation_end:
             self.on_simulation_end(stats)

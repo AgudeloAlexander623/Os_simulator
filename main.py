@@ -16,8 +16,8 @@ def main():
         num_cores=config.NUM_CORES
     )
 
-    for pid, burst, mem, pri in sample_processes():
-        controller.add_process(pid, burst, mem, pri)
+    for pid, burst, mem, pri, arrival in sample_processes():
+        controller.add_process(pid, burst, mem, pri, arrival)
 
     stats = controller.start_simulation()
 

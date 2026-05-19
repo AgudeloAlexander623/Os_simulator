@@ -24,15 +24,16 @@ class Process:
     burst_time: int
     memory: int
     priority: int = 0
+    arrival_time: int = 0
+    io_operations: list = field(default_factory=list)
 
     remaining_time: int = field(init=False)
     state: ProcessState = field(default=ProcessState.READY)
-    # NOTA: arrival_time por defecto es 0. La simulación actual no soporta
-    # llegadas escalonadas; todos los procesos llegan simultáneamente al inicio.
-    arrival_time: int = field(default=0)
     start_time: int = field(default=-1)
     completion_time: int = field(default=-1)
     first_scheduled_time: int = field(default=-1)
+    io_blocked_time: int = field(default=0)
+    total_io_time: int = field(default=0)
 
     def __post_init__(self) -> None:
         """Inicializa remaining_time y valida atributos."""
@@ -60,6 +61,8 @@ class Process:
 
         if self.remaining_time <= 0:
             self.state = ProcessState.TERMINATED
+        elif self.io_operations:
+            self.state = ProcessState.BLOCKED
         else:
             self.state = ProcessState.READY
 
@@ -99,3 +102,17 @@ class Process:
         if self.first_scheduled_time == -1:
             return 0
         return self.first_scheduled_time - self.arrival_time
+
+    def request_io(self) -> int:
+        """Solicita operación de I/O.
+
+        Returns:
+            int: Tiempo de I/O requerido, 0 si no hay operaciones pendientes.
+        """
+        if self.io_operations:
+            io_time = self.io_operations[0]
+            self.state = ProcessState.BLOCKED
+            self.io_blocked_time = io_time
+            self.total_io_time += io_time
+            return io_time
+        return 0

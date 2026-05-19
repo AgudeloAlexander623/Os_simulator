@@ -9,6 +9,10 @@ SCHEDULER_TYPE = 'round_robin'  # Opciones: 'fcfs', 'sjf', 'priority', 'round_ro
 
 # Memoria
 MEMORY_CAPACITY = 500
+PAGE_SIZE = 50
+
+# File System
+FS_CAPACITY = 1000
 
 # Número de cores
 NUM_CORES = 2

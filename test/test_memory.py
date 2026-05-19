@@ -13,24 +13,24 @@ from core.process import Process
 
 class TestMemory(unittest.TestCase):
     def test_memory_allocation(self):
-        mem = Memory(500)
+        mem = Memory(500, 50)
         p = Process(1, 10, 100)
         self.assertTrue(mem.allocate(p))
-        self.assertEqual(mem.used, 100)
+        self.assertEqual(mem.used_frames, 2)
 
     def test_memory_insufficient(self):
-        mem = Memory(200)
+        mem = Memory(200, 50)
         p = Process(1, 10, 300)
         with self.assertRaises(MemoryInsufficientError):
             mem.allocate(p)
-        self.assertEqual(mem.used, 0)
+        self.assertEqual(mem.used_frames, 0)
 
     def test_memory_free(self):
-        mem = Memory(500)
+        mem = Memory(500, 50)
         p = Process(1, 10, 100)
         mem.allocate(p)
         mem.free(p)
-        self.assertEqual(mem.used, 0)
+        self.assertEqual(mem.used_frames, 0)
 
 
 if __name__ == '__main__':
