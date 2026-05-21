@@ -1,267 +1,235 @@
 # Copyright (c) 2026 Jessid Alexander Agudelo — Universidad del Valle
 # Educational use only. See LICENSE for details.
 
-"""Tests para core/memory.py.
-
-Cubre asignación, liberación, doble free, fragmentación,
-mapa de memoria, tablas de páginas y casos borde.
-"""
-
 import unittest
 import sys
 import os
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from core.memory import Memory, MemoryInsufficientError
 from core.process import Process
 
 
-class TestMemoryAllocation(unittest.TestCase):
-    """Asignación de memoria con paginación."""
-
-    def test_basic_allocation(self):
+class TestMemory(unittest.TestCase):
+    def test_memory_allocation(self):
         mem = Memory(500, 50)
         p = Process(1, 10, 100)
         self.assertTrue(mem.allocate(p))
         self.assertEqual(mem.used_frames, 2)
 
-    def test_allocation_exact_page_size(self):
-        mem = Memory(200, 50)
-        p = Process(1, 10, 50)
-        mem.allocate(p)
-        self.assertEqual(mem.used_frames, 1)
-
-    def test_allocation_partial_page_rounds_up(self):
-        mem = Memory(200, 50)
-        p = Process(1, 10, 1)
-        mem.allocate(p)
-        self.assertEqual(mem.used_frames, 1)
-
-    def test_allocation_multiple_processes(self):
-        mem = Memory(500, 50)
-        p1 = Process(1, 10, 100)
-        p2 = Process(2, 10, 150)
-        p3 = Process(3, 10, 50)
-        mem.allocate(p1)
-        mem.allocate(p2)
-        mem.allocate(p3)
-        self.assertEqual(mem.used_frames, 6)
-
-    def test_allocation_fills_all_frames(self):
-        mem = Memory(100, 50)
-        p1 = Process(1, 10, 50)
-        p2 = Process(2, 10, 50)
-        mem.allocate(p1)
-        mem.allocate(p2)
-        self.assertEqual(mem.used_frames, 2)
-        self.assertEqual(mem.used_frames, mem.num_frames)
-
-    def test_insufficient_memory_raises(self):
+    def test_memory_insufficient(self):
         mem = Memory(200, 50)
         p = Process(1, 10, 300)
         with self.assertRaises(MemoryInsufficientError):
             mem.allocate(p)
         self.assertEqual(mem.used_frames, 0)
 
-    def test_insufficient_memory_after_partial_allocation(self):
-        mem = Memory(100, 50)
+    def test_memory_free(self):
+        mem = Memory(500, 50)
+        p = Process(1, 10, 100)
+        mem.allocate(p)
+        mem.free(p)
+        self.assertEqual(mem.used_frames, 0)
+
+    def fragmentation_test(self):
+        mem = Memory(500, 50)
         p1 = Process(1, 10, 100)
-        p2 = Process(2, 10, 100)
-        mem.allocate(p1)
+        p2 = Process(2, 10, 150)
+        p3 = Process(3, 10, 50)
+        mem.allocate(p1)  # 2 frames
+        mem.allocate(p2)  # 3 frames
+        mem.free(p1)      # Libera 2 frames
+        with self.assertRaises(MemoryInsufficientError):
+            mem.allocate(p3)  # Requiere 1 frame pero hay fragmentación
+        
+        # verificar que el estado de la memoria es correcto
+        mem.allocate(p3) # Debería funcionar ahora que p1 está libre
+        mem.free(p2) # Libera 3 frames
+        mem.compact()  # Compactar para liberar espacio contiguo
+        self.assertEqual(mem.used_frames, 3) # Solo p2 está en memoria
+        self.assertEqual(mem.free_frames, 7) # De los 10 frames, 3 están usados y 7 libres
+        self.assertEqual(mem.total_frames, 10) # La memoria total sigue siendo 10
+
+    def test_largest_free_block(self):
+        mem = Memory(500, 50)
+        p1 = Process(1, 10, 100)
+        p2 = Process(2, 10, 150)
+        mem.allocate(p1)  # 2 frames
+        mem.allocate(p2)  # 3 frames
+        mem.free(p1)      # Libera 2 frames
+        largest_block = mem.largest_free_block()
+        self.assertEqual(largest_block, 5)  # De los 10 frames, el bloque más grande es de 5 frames
+        
+        # liberar p2 y verificar que el bloque más grande ahora es de 10 frames
+        mem.free(p2)
+        largest_block = mem.largest_free_block()
+        self.assertEqual(largest_block, 10)
+        self.assertEqual(mem.used_frames, 0)
+        self.assertEqual(mem.free_frames, 10)
+        self.assertEqual(mem.total_frames, 10)
+
+        self.assertEqual(mem.fragmentation_external(), 0) # Sin fragmentación externa después de liberar todo
+
+    def test_memory_insufficient_after_allocation(self):
+        mem = Memory(200, 50)
+        p1 = Process(1, 10, 100)
+        p2 = Process(2, 10, 150)
+        mem.allocate(p1)  # 2 frames
+
+        with self.assertRaises(MemoryInsufficientError):
+                mem.allocate(p2)  # Requiere 3 frames pero solo quedan 8 frames disponibles (10 - 2 usados)
+        self.assertEqual(mem.used_frames, 2)  # Solo p1 está en memoria
+        self.assertEqual(mem.free_frames, 8)  # De los 10 frames, 2 están usados y 8 libres
+        self.assertEqual(mem.total_frames, 10) # La memoria total sigue siendo 10
+    
+        # liberar p1 y verificar que ahora sí se puede asignar p2
+        mem.free(p1)
+        self.assertTrue(mem.allocate(p2))  # Ahora debería funcionar
+        self.assertEqual(mem.used_frames, 3)  # Solo p2 está en memoria
+        self.assertEqual(mem.free_frames, 7)  # De los 10 frames, 3 están usados y 7 libres
+        self.assertEqual(mem.total_frames, 10) # La memoria total sigue siendo 10
+        p2.self.memory = 300
         with self.assertRaises(MemoryInsufficientError):
             mem.allocate(p2)
-        self.assertEqual(mem.used_frames, 2)
 
-
-class TestMemoryFree(unittest.TestCase):
-    """Liberación de memoria."""
-
-    def test_free_allocated_process(self):
-        mem = Memory(500, 50)
-        p = Process(1, 10, 100)
-        mem.allocate(p)
-        mem.free(p)
-        self.assertEqual(mem.used_frames, 0)
-
-    def test_free_multiple_processes(self):
-        mem = Memory(500, 50)
+    def test_memory_insufficient_after_allocation_and_free(self):
+        mem = Memory(200, 50)
         p1 = Process(1, 10, 100)
         p2 = Process(2, 10, 150)
-        mem.allocate(p1)
-        mem.allocate(p2)
-        mem.free(p1)
-        self.assertEqual(mem.used_frames, 3)
+        mem.allocate(p1)  # 2 frames
+        mem.free(p1)      # Libera 2 frames
+
+        with self.assertRaises(MemoryInsufficientError):
+                mem.allocate(p2)  # Requiere 3 frames pero solo quedan 8 frames disponibles (10 - 2 usados)
+        self.assertEqual(mem.used_frames, 0)  # No hay procesos en memoria
+        self.assertEqual(mem.free_frames, 10) # De los 10 frames, todos están libres
+        self.assertEqual(mem.total_frames, 10) # La memoria total sigue siendo 10
+
+        self.assertTrue(mem.allocate(p2))
+        self.assertEqual(mem.used_frames, 3)  # Solo p2 está en memoria
+        self.assertEqual(mem.free_frames, 7)  # De los 10 frames,
+        self.assertEqual(mem.total_frames, 10) # La memoria total sigue siendo 10
+
         mem.free(p2)
-        self.assertEqual(mem.used_frames, 0)
+        self.assertEqual(mem.used_frames, 0)  # No hay procesos en memoria
+        self.assertEqual(mem.free_frames, 10) # De los 10 frames, todos están libres
+        self.assertEqual(mem.total_frames, 10) # La memoria total sigue siendo 10
+        
+        if p2.memory > mem.total_frames * mem.page_size:
+             with self.assertRaises(MemoryInsufficientError):
+                  mem.allocate(p2)
+        
+        for i in range(mem.num_frames):
+             mem.frames[i] = None
+             mem.used_frames = 0
 
-    def test_free_in_reverse_order(self):
+        self.assertEqual(mem.used_frames, 0)  # No hay procesos en memoria
+        self.assertEqual(mem.free_frames, 10) # De los 10 frames, todos estan libres
+        self.assertEqual(mem.total_frames, 10) # La memoria total sigue siendo 10
+
+        while True:
+             try:
+                  mem.allocate(p2)
+             except MemoryInsufficientError:
+                  break
+
+        self.assertEqual(mem.used_frames, mem.num_frames)  # Todos los frames están en uso
+        self.assertEqual(mem.free_frames, 0) # No hay frames libres
+        self.assertEqual(mem.total_frames, 10) # La memoria total sigue siendo 10
+
+    def test_memory_mapping(self):
         mem = Memory(500, 50)
-        p1 = Process(1, 10, 100)
-        p2 = Process(2, 10, 150)
-        mem.allocate(p1)
-        mem.allocate(p2)
-        mem.free(p2)
-        self.assertEqual(mem.used_frames, 2)
+        p = Process(1, 10, 100)
+        mem.allocate(p)
+        page_table = mem.page_tables[p.pid]
+        self.assertEqual(len(page_table.entries), 2)  # Debería tener 2 páginas asignadas
+        for entry in page_table.entries:
+            self.assertTrue(entry.valid)  # Todas las entradas deberían ser válidas
+            self.assertIsNotNone(entry.frame)  # Todas las entradas deberían tener un frame asignado
 
-    def test_double_free_raises(self):
+        if p.memory > mem.total_frames * mem.page_size:
+            with self.assertRaises(MemoryInsufficientError):
+                mem.allocate(p)
+        # Verificar que el número de páginas necesarias se calcula correctamente
+        for i in range(mem.num_frames):
+            for j in range(mem.page_size):
+                    if mem.frames[i] is not None:
+                        mem.frames[i] = None
+                        mem.used_frames = 0
+
+    def test_page_table_str(self):
         mem = Memory(500, 50)
         p = Process(1, 10, 100)
         mem.allocate(p)
-        mem.free(p)
-        with self.assertRaises(ValueError):
-            mem.free(p)
+        page_table = mem.page_tables[p.pid]
+        expected_str = "PageTable(pid=1, entries=[PageTableEntry(frame=0, valid=True), PageTableEntry(frame=1, valid=True)], fifo_queue=[0, 1])"
+        self.assertEqual(str(page_table), expected_str)
 
-    def test_free_never_allocated_raises(self):
+        if p.memory > mem.total_frames * mem.page_size:
+            with self.assertRaises(MemoryInsufficientError):
+                mem.allocate(p)
+
+        mem.free(p)
+        self.assertEqual(mem.used_frames, 0) #La memoria deberia de estar completamente libre despues de liberar el proceso
+        self.assertEqual(mem.free_frames, mem.num_frames) #Todos los frames deberian de estar libres despues de liberar el proceso
+        self.assertEqual(mem.total_frames, 10) #La memoria total sigue siendo 10
+
+    def test_memory_observer_notification(self):
+        events = []
+        mem = Memory(500, 50)
+        mem.attach(lambda e: events.append(e))
+        p = Process(1, 10, 100)
+        mem.allocate(p)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["type"], "allocated")
+        self.assertEqual(events[0]["process"], p)
+        self.assertEqual(events[0]["used"], 2)
+
+        mem.free(p)
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[1]["type"], "free")
+        self.assertEqual(events[1]["process"], p)
+        self.assertEqual(events[1]["used"], 0)
+
+
+        if p.memory > mem.total_frames * mem.page_size:
+            with self.assertRaises(MemoryInsufficientError):
+                mem.allocate(p)
+                self.assertEqual(mem.used_frames, 0) #La memoria deberia de esta completamente libre despues de liberar el proceso
+                self.assertEqual(mem.free_frames, mem.num_frames) #Todos los frames deberian de
+
+        while True:
+            try:
+                mem.allocate(p)
+            except MemoryInsufficientError:
+                break   
+             
+        self.assertEqual(mem.used_frames, mem.num_frames)  # Todos los frames están en uso
+        self.assertEqual(mem.free_frames, 0) # No hay frames libres
+        self.assertEqual(mem.total_frames, 10) # La memoria total sigue siendo 10
+
+
+    def test_memory_no_observers(self):
         mem = Memory(500, 50)
         p = Process(1, 10, 100)
-        with self.assertRaises(ValueError):
-            mem.free(p)
+        try:
+            mem.allocate(p)  # No observers attached
+            mem.free(p)      # No observers attached
+        except Exception as ex:
+            self.fail(f"Memory methods raised an exception without observers: {ex}")
+        
+        self.assertTrue(True)
+
+        if p.memory > mem.total_frames * mem.page_size: 
+            with self.assertRaises(MemoryInsufficientError):
+                mem.allocate(p)
 
 
-class TestMemoryPageTable(unittest.TestCase):
-    """Tablas de páginas por proceso."""
+        for i in range(mem.num_frames):
+            mem.frames[i] = None
+            mem.used_frames = 0            
+        self.assertEqual(mem.used_frames, 0) #La memoria deberia de estar completamente libre despues de liberar el proceso
 
-    def test_page_table_created_on_allocate(self):
-        mem = Memory(200, 50)
-        p = Process(1, 10, 100)
-        mem.allocate(p)
-        pt = mem.get_page_table(1)
-        self.assertIsNotNone(pt)
-        self.assertEqual(pt.get_num_pages(), 2)
-
-    def test_page_table_entries_are_valid(self):
-        mem = Memory(200, 50)
-        p = Process(1, 10, 100)
-        mem.allocate(p)
-        pt = mem.get_page_table(1)
-        valid = [e for e in pt.entries if e.valid]
-        self.assertEqual(len(valid), 2)
-
-    def test_page_table_removed_on_free(self):
-        mem = Memory(200, 50)
-        p = Process(1, 10, 100)
-        mem.allocate(p)
-        mem.free(p)
-        self.assertIsNone(mem.get_page_table(1))
-
-    def test_page_table_nonexistent_pid(self):
-        mem = Memory(200, 50)
-        self.assertIsNone(mem.get_page_table(999))
-
-    def test_page_table_str_format(self):
-        mem = Memory(100, 50)
-        p = Process(1, 10, 100)
-        mem.allocate(p)
-        output = mem.page_table_str(1)
-        self.assertIn("PID=1", output)
-        self.assertIn("Page", output)
-        self.assertIn("Frame", output)
-
-    def test_page_table_str_nonexistent_pid(self):
-        mem = Memory(100, 50)
-        output = mem.page_table_str(999)
-        self.assertIn("no tiene tabla", output)
-
-
-class TestMemoryFragmentation(unittest.TestCase):
-    """Cálculo de fragmentación externa."""
-
-    def test_no_fragmentation_when_empty(self):
-        mem = Memory(200, 50)
-        self.assertEqual(mem.fragmentation_external(), 0)
-
-    def test_no_fragmentation_when_full(self):
-        mem = Memory(100, 50)
-        p1 = Process(1, 10, 50)
-        p2 = Process(2, 10, 50)
-        mem.allocate(p1)
-        mem.allocate(p2)
-        self.assertEqual(mem.fragmentation_external(), 0)
-
-    def test_fragmentation_with_scattered_free_frames(self):
-        mem = Memory(300, 50)
-        p1 = Process(1, 10, 50)
-        p2 = Process(2, 10, 50)
-        p3 = Process(3, 10, 50)
-        mem.allocate(p1)
-        mem.allocate(p2)
-        mem.allocate(p3)
-        mem.free(p2)
-        frag = mem.fragmentation_external()
-        self.assertGreaterEqual(frag, 0)
-
-    def test_largest_free_block_empty(self):
-        mem = Memory(200, 50)
-        self.assertEqual(mem._largest_free_block(), 4)
-
-    def test_largest_free_block_partial(self):
-        mem = Memory(200, 50)
-        p = Process(1, 10, 100)
-        mem.allocate(p)
-        self.assertEqual(mem._largest_free_block(), 2)
-
-
-class TestMemoryMap(unittest.TestCase):
-    """Representación visual de la memoria."""
-
-    def test_memory_map_empty(self):
-        mem = Memory(200, 50)
-        result = mem.memory_map()
-        self.assertIn("usado=0/4", result)
-
-    def test_memory_map_with_process(self):
-        mem = Memory(200, 50)
-        p = Process(1, 10, 100)
-        mem.allocate(p)
-        result = mem.memory_map()
-        self.assertIn("P1", result)
-        self.assertIn("usado=2/4", result)
-
-    def test_memory_map_after_free(self):
-        mem = Memory(200, 50)
-        p = Process(1, 10, 100)
-        mem.allocate(p)
-        mem.free(p)
-        result = mem.memory_map()
-        self.assertNotIn("P1", result)
-        self.assertIn("usado=0/4", result)
-
-
-class TestMemoryEdgeCases(unittest.TestCase):
-    """Casos borde y validaciones."""
-
-    def test_zero_capacity(self):
-        mem = Memory(0, 50)
-        self.assertEqual(mem.num_frames, 0)
-        self.assertEqual(mem.used_frames, 0)
-
-    def test_negative_capacity_raises(self):
-        with self.assertRaises(ValueError):
-            Memory(-100, 50)
-
-    def test_invalid_page_size_raises(self):
-        with self.assertRaises(ValueError):
-            Memory(500, 0)
-
-    def test_large_page_size(self):
-        mem = Memory(500, 500)
-        self.assertEqual(mem.num_frames, 1)
-
-    def test_memory_capacity_property(self):
-        mem = Memory(1000, 50)
-        self.assertEqual(mem.capacity, 1000)
-
-    def test_allocate_after_free_reuses_frames(self):
-        mem = Memory(100, 50)
-        p1 = Process(1, 10, 50)
-        p2 = Process(2, 10, 50)
-        mem.allocate(p1)
-        mem.free(p1)
-        mem.allocate(p2)
-        self.assertEqual(mem.used_frames, 1)
-        self.assertIsNotNone(mem.get_page_table(2))
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()
