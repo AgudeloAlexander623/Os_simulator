@@ -25,7 +25,19 @@ class SimulationController:
             memory_cap (int): Capacidad de memoria.
             num_cores (int): Número de cores.
             context_switch_overhead (int): Costo de context switch.
+
+        Raises:
+            ValueError: Si algún parámetro es inválido.
         """
+        if quantum < 0:
+            raise ValueError("Quantum no puede ser negativo")
+        if memory_cap <= 0:
+            raise ValueError("La capacidad de memoria debe ser positiva")
+        if num_cores < 1:
+            raise ValueError("Se requiere al menos 1 core")
+        if context_switch_overhead < 0:
+            raise ValueError("Context switch overhead no puede ser negativo")
+
         self.scheduler = self._create_scheduler(scheduler_type, quantum)
         self.memory = Memory(memory_cap, getattr(config, 'PAGE_SIZE', 50))
         self.filesystem = FileSystem(getattr(config, 'FS_CAPACITY', 1000))
@@ -63,6 +75,21 @@ class SimulationController:
         if io_time > 0:
             process.io_operations = [io_time]
         self.processes.append(process)
+
+    def remove_process(self, pid: int) -> bool:
+        """Elimina un proceso por su PID.
+
+        Returns:
+            True si se encontró y eliminó, False en caso contrario.
+        """
+        original_len = len(self.processes)
+        self.processes = [p for p in self.processes if p.pid != pid]
+        found = len(self.processes) < original_len
+
+        if found and isinstance(self.scheduler, PriorityScheduler):
+            self.scheduler.remove_process(pid)
+
+        return found
 
     def start_simulation(self) -> dict:
         loaded_processes = []
@@ -106,7 +133,8 @@ class SimulationController:
         # Thread para agregar procesos escalonados
         staggered = [p for p in loaded_processes if p.arrival_time > 0]
         if staggered:
-            self.scheduler.submission_complete = False
+            # Resetear el evento: aún llegan procesos
+            self.scheduler.submission_complete.clear()
 
             def submit_staggered():
                 import time
@@ -114,7 +142,8 @@ class SimulationController:
                     time.sleep(p.arrival_time * 0.01)
                     self.scheduler.add_process(p)
                     logging.info(f"[Controller] PID={p.pid} llegó en t={p.arrival_time}")
-                self.scheduler.submission_complete = True
+                # Señalar que ya no llegarán más procesos
+                self.scheduler.submission_complete.set()
 
             submitter = threading.Thread(target=submit_staggered)
             submitter.start()
@@ -193,3 +222,4 @@ class SimulationController:
             self.on_simulation_end(stats)
 
         return stats
+

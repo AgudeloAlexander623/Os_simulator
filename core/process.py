@@ -70,16 +70,18 @@ class Process:
 
     @property
     def waiting_time(self) -> int:
-        """Calcula el tiempo de espera.
+        """Calcula el tiempo de espera en cola READY.
 
-        Fórmula estándar: turnaround_time - burst_time.
-        Esto incluye todo el tiempo en cola READY (incluyendo re-encolados).
+        Fórmula: turnaround_time - burst_time - total_io_time.
+        Solo cuenta el tiempo que el proceso estuvo esperando
+        para ser ejecutado, excluyendo tiempo de I/O.
 
         Returns:
-            int: Tiempo de espera total.
+            int: Tiempo de espera total en cola READY.
         """
         tt = self.turnaround_time
-        return tt - self.burst_time if tt > 0 else 0
+        wait = tt - self.burst_time - self.total_io_time
+        return max(wait, 0)
 
     @property
     def turnaround_time(self) -> int:

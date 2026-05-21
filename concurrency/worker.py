@@ -47,8 +47,10 @@ class CoreWorker(threading.Thread):
         """Ejecuta el loop de procesamiento de procesos."""
         while True:
             with scheduler_lock:
-                no_active = not self.scheduler.has_active_processes()
-                if self.scheduler.submission_complete and no_active:
+                # Verificar si podemos terminar
+                all_submitted = self.scheduler.submission_complete.is_set()
+                nothing_pending = not self.scheduler.has_processes()
+                if all_submitted and nothing_pending:
                     break
                 process = self.scheduler.get_process()
 
@@ -77,11 +79,16 @@ class CoreWorker(threading.Thread):
                     f"[{self.name}] PID={process.pid} ejecutó {executed} | restante={process.remaining_time}"
                 )
 
+
                 if process.state == ProcessState.TERMINATED:
                     process.completion_time = self.current_time
                     self.scheduler.mark_terminated()
                     with memory_lock:
-                        self.memory.free(process)
+                        try:
+                            self.memory.free(process)
+                        except ValueError as e:
+                            logging.warning(f"[{self.name}] Error liberando memoria PID={process.pid}: {e}")
+
                 elif process.state == ProcessState.BLOCKED:
                     io_time = process.request_io()
                     logging.info(

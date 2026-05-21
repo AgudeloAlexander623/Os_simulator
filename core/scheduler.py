@@ -20,7 +20,9 @@ class Scheduler:
         self.io_queue: Queue['Process'] = Queue()
         self._active_count = 0
         self._count_lock = threading.Lock()
-        self.submission_complete = True
+        # Evento para señalizar que ya no llegarán más procesos
+        self.submission_complete = threading.Event()
+        self.submission_complete.set()  # Por defecto, todo submitido
 
     @property
     def queue(self) -> Queue['Process']:
@@ -88,6 +90,7 @@ class SJFScheduler(Scheduler):
     def __init__(self, quantum: int):
         super().__init__(quantum)
         self.heap: list = []
+        self._counter = 0
 
     def add_process(self, process: 'Process') -> None:
         with self._count_lock:
@@ -95,21 +98,20 @@ class SJFScheduler(Scheduler):
         self._enqueue(process)
 
     def _enqueue(self, process: 'Process') -> None:
-        # Actualizar el heap: remover proceso existente si ya está
-        self.heap = [(rt, p) for rt, p in self.heap if p.pid != process.pid]
+        self.heap = [(rt, c, p) for rt, c, p in self.heap if p.pid != process.pid]
         heapq.heapify(self.heap)
-        heapq.heappush(self.heap, (process.remaining_time, process))
+        self._counter += 1
+        heapq.heappush(self.heap, (process.remaining_time, self._counter, process))
 
     def has_processes(self) -> bool:
         return len(self.heap) > 0 or self.has_io_processes()
 
     def get_process(self) -> Optional['Process']:
-        # Primero revisar la cola de I/O (procesos que ya esperaron)
         if self.has_io_processes():
             return self.io_queue.get()
         if not self.heap:
             return None
-        return heapq.heappop(self.heap)[1]
+        return heapq.heappop(self.heap)[2]
 
 
 class PriorityScheduler(Scheduler):
@@ -118,6 +120,7 @@ class PriorityScheduler(Scheduler):
     def __init__(self, quantum: int):
         super().__init__(quantum)
         self.heap: list = []
+        self._counter = 0
 
     def add_process(self, process: 'Process') -> None:
         with self._count_lock:
@@ -125,21 +128,39 @@ class PriorityScheduler(Scheduler):
         self._enqueue(process)
 
     def _enqueue(self, process: 'Process') -> None:
+        self.heap = [(pr, c, p) for pr, c, p in self.heap if p.pid != process.pid]
+        heapq.heapify(self.heap)
+        self._counter += 1
         priority = getattr(process, 'priority', 0)
-        heapq.heappush(self.heap, (priority, process))
+        heapq.heappush(self.heap, (priority, self._counter, process))
 
     def has_processes(self) -> bool:
         return len(self.heap) > 0 or self.has_io_processes()
 
     def get_process(self) -> Optional['Process']:
-        # Primero revisar la cola de I/O (procesos que ya esperaron)
         if self.has_io_processes():
             return self.io_queue.get()
         if not self.heap:
             return None
-        return heapq.heappop(self.heap)[1]
+        return heapq.heappop(self.heap)[2]
+
+    def update_process_priority(self, process: 'Process', new_priority: int) -> None:
+        """Actualiza la prioridad de un proceso en el heap."""
+        self.heap = [(pr, c, p) for pr, c, p in self.heap if p.pid != process.pid]
+        heapq.heapify(self.heap)
+        setattr(process, 'priority', new_priority)
+        self._counter += 1
+        heapq.heappush(self.heap, (new_priority, self._counter, process))
+
+    def remove_process(self, pid: int) -> None:
+        """Remueve un proceso del heap por su PID."""
+        self.heap = [(pr, c, p) for pr, c, p in self.heap if p.pid != pid]
+        heapq.heapify(self.heap)
+
+    
 
 
 class RoundRobinScheduler(Scheduler):
     """Round-Robin: Quantum fijo, como el original."""
     pass
+

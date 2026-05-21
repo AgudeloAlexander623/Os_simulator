@@ -38,6 +38,7 @@ THEME = {
     "stats_fg": "#1e293b",
 }
 
+FONT_BASE = ("Segoe UI", 10)
 FONT_BOLD = ("Segoe UI", 10, "bold")
 FONT_TITLE = ("Segoe UI", 14, "bold")
 FONT_SMALL = ("Segoe UI", 9)
@@ -70,6 +71,8 @@ class OSSimulatorGUI:
         self._create_layout()
         self._setup_styles()
         self._add_sample_processes()
+        self._setup_memory_observer()
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def _create_layout(self) -> None:
         # ---- Top section: controls + process table (side by side) ----
@@ -92,7 +95,7 @@ class OSSimulatorGUI:
         process_content.pack(fill="both", expand=True, padx=12, pady=8)
         self._build_process_table(process_content)
 
-        # ---- Bottom section: memory + logs + stats ----
+        # ---- Bottom section: memory + fs + logs + stats ----
         bottom_paned = tk.PanedWindow(
             self.root, orient="horizontal", bg=THEME["border"], sashwidth=4
         )
@@ -104,26 +107,23 @@ class OSSimulatorGUI:
         bottom_paned.add(memory_card, minsize=200)
         self._build_memory_panel(memory_card)
 
-        # Logs panel - hijo directo del PanedWindow
+        # File System panel
+        fs_card = tk.Frame(bottom_paned, bg=THEME["bg_secondary"])
+        self._build_card_inside(fs_card, "File System")
+        bottom_paned.add(fs_card, minsize=200)
+        self._build_filesystem_panel(fs_card)
+
+        # Logs panel
         logs_card = tk.Frame(bottom_paned, bg=THEME["bg_secondary"])
         self._build_card_inside(logs_card, "Log")
         bottom_paned.add(logs_card, minsize=250)
-
         self._build_log_panel(logs_card)
 
-        # Stats panel - hijo directo del PanedWindow
+        # Stats panel
         stats_card = tk.Frame(bottom_paned, bg=THEME["bg_secondary"])
         self._build_card_inside(stats_card, "Statistics & Gantt")
         bottom_paned.add(stats_card, minsize=300)
-
         self._build_stats_panel(stats_card)
-
-        # FS panel
-        fs_card = tk.Frame(bottom_paned, bg=THEME["bg_secondary"])
-        self._build_card_inside(fs_card, "File System")
-        bottom_paned.add(fs_card, minsize=250)
-
-        self._build_fs_panel(fs_card)
 
         # ---- Status bar ----
         self._build_statusbar()
@@ -233,6 +233,24 @@ class OSSimulatorGUI:
         )
         self.clear_btn.pack(side="left")
 
+        tk.Button(
+            btn_row, text="↺  Reset",
+            command=self.reset,
+            bg=THEME["bg_button_secondary"], fg=THEME["text_on_primary"],
+            font=FONT_SMALL, relief="flat", bd=0, padx=12, pady=8,
+            activebackground="#4b5563", activeforeground=THEME["text_on_primary"],
+            cursor="hand2",
+        ).pack(side="left", padx=(8, 0))
+
+        tk.Button(
+            btn_row, text="↓  Export",
+            command=self._export_results,
+            bg=THEME["bg_success"], fg=THEME["text_on_primary"],
+            font=FONT_SMALL, relief="flat", bd=0, padx=12, pady=8,
+            activebackground="#059669", activeforeground=THEME["text_on_primary"],
+            cursor="hand2",
+        ).pack(side="right")
+
     def _build_process_table(self, parent: tk.Widget) -> None:
         columns = ("PID", "Burst", "Memory", "Priority", "Arrival", "I/O")
         self.tree = ttk.Treeview(
@@ -282,8 +300,10 @@ class OSSimulatorGUI:
 
         handler = TextHandler(self.log_text)
         handler.setFormatter(logging.Formatter('%(asctime)s  %(message)s', datefmt='%H:%M:%S'))
-        logging.getLogger().addHandler(handler)
-        logging.getLogger().setLevel(logging.INFO)
+        root_logger = logging.getLogger()
+        if not any(isinstance(h, TextHandler) for h in root_logger.handlers):
+            root_logger.addHandler(handler)
+        root_logger.setLevel(logging.INFO)
 
     def _build_memory_panel(self, parent: tk.Widget) -> None:
         content = tk.Frame(parent, bg=THEME["bg_secondary"])
@@ -297,7 +317,7 @@ class OSSimulatorGUI:
         self.memory_text.pack(fill="both", expand=True)
         self.memory_text.insert(tk.END, "Run a simulation to see memory usage.")
 
-    def _build_fs_panel(self, parent: tk.Widget) -> None:
+    def _build_filesystem_panel(self, parent: tk.Widget) -> None:
         content = tk.Frame(parent, bg=THEME["bg_secondary"])
         content.pack(fill="both", expand=True, padx=12, pady=8)
 
@@ -307,7 +327,54 @@ class OSSimulatorGUI:
             state="disabled",
         )
         self.fs_text.pack(fill="both", expand=True)
-        self.fs_text.insert(tk.END, "Run a simulation to see file system.")
+        self.fs_text.insert(tk.END, "Run a simulation to see file system tree.")
+
+        self.page_table_text = scrolledtext.ScrolledText(
+            content, bg=THEME["log_bg"], fg="#c4b5fd",
+            font=FONT_MONO_SMALL, relief="flat", padx=8, pady=8,
+            state="disabled", height=8,
+        )
+        self.page_table_text.pack(fill="both", expand=True, pady=(8, 0))
+        self.page_table_text.insert(tk.END, "Page tables appear after simulation.")
+
+    def _setup_memory_observer(self) -> None:
+        pass
+
+    def _show_page_tables(self) -> None:
+        if not self.controller:
+            return
+        lines = []
+        for pid in sorted(self.controller.memory.page_tables.keys()):
+            lines.append(self.controller.memory.page_table_str(pid))
+            lines.append("")
+        text = "\n".join(lines) if lines else "No page tables available."
+        self.page_table_text.config(state="normal")
+        self.page_table_text.delete(1.0, tk.END)
+        self.page_table_text.insert(tk.END, text)
+        self.page_table_text.config(state="disabled")
+
+    def _export_results(self) -> None:
+        if not self.controller:
+            messagebox.showinfo("Export", "Run a simulation first.")
+            return
+        import json
+        from tkinter import filedialog
+        stats = self.controller.start_simulation() if not hasattr(self, '_last_stats') else self._last_stats
+        export_data = {
+            "scheduler": self.sched_var.get(),
+            "quantum": self.quantum_var.get(),
+            "memory_capacity": self.memory_var.get(),
+            "num_cores": self.cores_var.get(),
+            "stats": stats,
+        }
+        path = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+        )
+        if path:
+            with open(path, "w") as f:
+                json.dump(export_data, f, indent=2)
+            messagebox.showinfo("Export", f"Results exported to {path}")
 
     def _build_stats_panel(self, parent: tk.Widget) -> None:
         content = tk.Frame(parent, bg=THEME["bg_secondary"])
@@ -399,13 +466,14 @@ class OSSimulatorGUI:
     def add_process(self) -> None:
         win = tk.Toplevel(self.root)
         win.title("Add Process")
-        win.geometry("320x220")
+        win.geometry("320x280")
         win.configure(bg=THEME["bg_primary"])
         win.transient(self.root)
         win.grab_set()
 
         fields_data = [
-            ("PID", 0), ("Burst Time", 0), ("Memory", 0), ("Priority", 0), ("Arrival Time", 0), ("I/O Time", 0)
+            ("PID", 0), ("Burst Time", 0), ("Memory", 0),
+            ("Priority", 0), ("Arrival", 0), ("I/O Time", 0),
         ]
         entries = []
 
@@ -452,7 +520,7 @@ class OSSimulatorGUI:
                         messagebox.showerror("Error", f"PID {pid} already exists", parent=win)
                         return
 
-                self.tree.insert("", "end", values=(pid, burst, mem, pri, arrival, io_time))
+                self.tree.insert("", "end", values=values)
                 self._update_proc_count()
                 win.destroy()
             except ValueError:
@@ -500,7 +568,9 @@ class OSSimulatorGUI:
 
         for item in self.tree.get_children():
             values = self.tree.item(item, 'values')
-            pid, burst, mem, pri, arrival, io_time = int(values[0]), int(values[1]), int(values[2]), int(values[3]), int(values[4]), int(values[5])
+            pid, burst, mem, pri = int(values[0]), int(values[1]), int(values[2]), int(values[3])
+            arrival = int(values[4]) if len(values) > 4 else 0
+            io_time = int(values[5]) if len(values) > 5 else 0
             self.controller.add_process(pid, burst, mem, pri, arrival, io_time)
 
         sim_thread = threading.Thread(target=self._run_simulation_thread)
@@ -539,46 +609,22 @@ class OSSimulatorGUI:
         memory_map = self.controller.memory.memory_map()
         fragmentation = self.controller.memory.fragmentation_external()
         frag_pct = (fragmentation / self.controller.memory.capacity * 100) if self.controller.memory.capacity > 0 else 0
-
-        page_tables_text = []
-        for pid in self.controller.memory.page_tables:
-            page_tables_text.append(self.controller.memory.page_table_str(pid))
-
+        used_bytes = self.controller.memory.used_frames * self.controller.memory.page_size
+        free_bytes = self.controller.memory.capacity - used_bytes
         mem_text = (
             f"  Memory Map\n"
             f"  {'─' * 36}\n"
             f"{memory_map}\n"
             f"\n"
-            f"  Used:     {self.controller.memory.used_frames}/{self.controller.memory.num_frames} frames\n"
-            f"  Free:     {self.controller.memory.num_frames - self.controller.memory.used_frames} frames\n"
-            f"  Page Size: {self.controller.memory.page_size} bytes\n"
+            f"  Used:     {used_bytes}/{self.controller.memory.capacity}\n"
+            f"  Free:     {free_bytes}\n"
+            f"  Frames:   {self.controller.memory.used_frames}/{self.controller.memory.num_frames}\n"
             f"  Frag Ext: {fragmentation} bytes ({frag_pct:.1f}%)\n"
-            f"\n"
-            f"  Page Tables\n"
-            f"  {'─' * 36}\n"
-            f"{'\n'.join(page_tables_text) if page_tables_text else 'No page tables'}\n"
         )
         self.memory_text.config(state="normal")
         self.memory_text.delete(1.0, tk.END)
         self.memory_text.insert(tk.END, mem_text)
         self.memory_text.config(state="disabled")
-
-        # Update FS panel
-        fs_tree = self.controller.filesystem.tree()
-        fs_used = self.controller.filesystem.used
-        fs_cap = self.controller.filesystem.capacity
-        fs_text = (
-            f"  File System Tree\n"
-            f"  {'─' * 36}\n"
-            f"📁 /\n"
-            f"{fs_tree}\n"
-            f"\n"
-            f"  Used: {fs_used}/{fs_cap} bytes\n"
-        )
-        self.fs_text.config(state="normal")
-        self.fs_text.delete(1.0, tk.END)
-        self.fs_text.insert(tk.END, fs_text)
-        self.fs_text.config(state="disabled")
 
         self.status_label.config(text="Done", fg=THEME["bg_success"])
         self.start_button.config(state="normal", bg=THEME["bg_button_primary"])
@@ -586,6 +632,14 @@ class OSSimulatorGUI:
         self.is_running = False
 
         self._update_process_metrics_table(stats.get("process_metrics", []))
+
+        fs_tree = self.controller.filesystem.tree("/")
+        self.fs_text.config(state="normal")
+        self.fs_text.delete(1.0, tk.END)
+        self.fs_text.insert(tk.END, fs_tree if fs_tree else "No files created.")
+        self.fs_text.config(state="disabled")
+
+        self._last_stats = stats
 
         logging.info("Simulation finished")
 
@@ -602,7 +656,7 @@ class OSSimulatorGUI:
                     f'{m["waiting_time"]:.2f}',
                     f'{m["turnaround_time"]:.2f}',
                     f'{m["response_time"]:.2f}',
-                    m["total_io_time"],
+                    m.get("total_io_time", 0),
                 ),
             )
 
@@ -614,8 +668,12 @@ class OSSimulatorGUI:
         self.memory_text.config(state="disabled")
         self.fs_text.config(state="normal")
         self.fs_text.delete(1.0, tk.END)
-        self.fs_text.insert(tk.END, "Run a simulation to see file system.")
+        self.fs_text.insert(tk.END, "Run a simulation to see file system tree.")
         self.fs_text.config(state="disabled")
+        self.page_table_text.config(state="normal")
+        self.page_table_text.delete(1.0, tk.END)
+        self.page_table_text.insert(tk.END, "Page tables appear after simulation.")
+        self.page_table_text.config(state="disabled")
         self.stats_text.config(state="normal")
         self.stats_text.delete(1.0, tk.END)
         self.stats_text.insert(tk.END, "Run a simulation to see statistics here.")
@@ -623,6 +681,34 @@ class OSSimulatorGUI:
         for item in self.process_metrics_tree.get_children():
             self.process_metrics_tree.delete(item)
 
+    def _reset_processes(self) -> None:
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        self._add_sample_processes()
+
+    def reset(self) -> None:
+        """Resetea el estado para permitir una nueva simulación sin reiniciar la app."""
+        self._reset_processes()
+        self._clear_logs()
+        self.status_label.config(text="Ready", fg=THEME["text_on_dark"])
+
+    def add_process_to_controller(self, pid: int, burst: int, mem: int, pri: int) -> None:
+        """Agrega un proceso al controller durante la simulación (si existe)."""
+        if self.controller:
+            self.controller.add_process(pid, burst, mem, pri)
+            self._update_proc_count()
+
+    def remove_process_from_controller(self, pid: int) -> None:
+        """Remueve un proceso del controller durante la simulación (si existe)."""
+        if self.controller:
+            self.controller.remove_process(pid)
+            self._update_proc_count()
+
+    def on_closing(self) -> None:
+        if self.is_running and messagebox.askokcancel("Quit", "A simulation is running. Do you really want to quit?"):
+            self.root.destroy()
+        elif not self.is_running:
+            self.root.destroy()
 
 if __name__ == "__main__":
     root = tk.Tk()

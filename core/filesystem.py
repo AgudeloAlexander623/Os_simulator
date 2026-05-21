@@ -264,7 +264,7 @@ class FileSystem:
     def _build_tree(self, node: Inode, prefix: str, lines: List[str], is_last: bool) -> None:
         """Construye el árbol recursivamente."""
         connector = "└── " if is_last else "├── "
-        icon = "📁" if node.is_directory else "📄"
+        icon = "[D]" if node.is_directory else "[F]"
         lines.append(f"{prefix}{connector}{icon} {node.name}")
 
         if node.is_directory:

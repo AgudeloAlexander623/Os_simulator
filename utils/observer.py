@@ -1,29 +1,27 @@
 # Copyright (c) 2026 Jessid Alexander Agudelo — Universidad del Valle
 # Educational use only. See LICENSE for details.
 
+"""Patrón Observer: permite suscribirse a eventos de un objeto.
+
+Un observador defectuoso no interrumpe la notificación al resto.
+"""
+
+import logging
 from typing import Callable, Any
 
 
 class Observable:
-    """Clase base para objetos observables (Observer pattern)."""
+    """Clase base para objetos que emiten eventos a suscriptores."""
 
-    def __init__(self):
-        self._observers = []
+    def __init__(self) -> None:
+        self._observers: list[Callable[[Any], None]] = []
 
     def attach(self, observer: Callable[[Any], None]) -> None:
-        """Adjunta un observador.
-
-        Args:
-            observer (Callable): Función a llamar en notificaciones.
-        """
+        """Suscribe un observador."""
         self._observers.append(observer)
 
     def detach(self, observer: Callable[[Any], None]) -> None:
-        """Desadjunta un observador.
-
-        Args:
-            observer (Callable): Observador a remover.
-        """
+        """Desuscribe un observador (silencioso si no existe)."""
         try:
             self._observers.remove(observer)
         except ValueError:
@@ -32,8 +30,11 @@ class Observable:
     def notify(self, event: Any) -> None:
         """Notifica a todos los observadores.
 
-        Args:
-            event (Any): Datos del evento.
+        Si un observador lanza una excepción, se loguea pero no
+        interrumpe la notificación al resto.
         """
         for observer in self._observers:
-            observer(event)
+            try:
+                observer(event)
+            except Exception:
+                logging.exception("Error en observador durante notify")
