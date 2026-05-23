@@ -21,3 +21,4 @@ logging.basicConfig(
         logging.FileHandler(LOG_FILE, mode="a"),
     ],
 )
+

@@ -156,13 +156,7 @@ class PriorityScheduler(Scheduler):
         """Remueve un proceso del heap por su PID."""
         self.heap = [(pr, c, p) for pr, c, p in self.heap if p.pid != pid]
         heapq.heapify(self.heap)
-
-    
-
-
+        
 class RoundRobinScheduler(Scheduler):
     """Round-Robin: Quantum fijo, como el original."""
-
-    def __init__(self, quantum: int):
-        super().__init__(quantum)
-
+    pass
