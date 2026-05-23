@@ -71,6 +71,7 @@ class OSSimulatorGUI:
         self._create_layout()
         self._setup_styles()
         self._add_sample_processes()
+        self._configure_event_bindings()
 
     def _create_layout(self) -> None:
         # ---- Top section: controls + process table (side by side) ----
@@ -623,39 +624,16 @@ class OSSimulatorGUI:
         elif not self.is_running:
             self.root.destroy()
 
-    # configura el protocolo de cierre de la ventana para llamar al metodo on_closing, que maneja el cierre de la app de forma segura incluso si hay una simulacion en curso
-    def __post_init__(self):
+    # configura el protocolo de cierre de la ventana para llamar al metodo on_closing,
+    # que maneja el cierre de la app de forma segura incluso si hay una simulacion en curso
+    def _configure_event_bindings(self) -> None:
+        """Registra atajos de teclado y el cierre seguro de la ventana."""
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.root.bind("<Control-r>", lambda e: self.reset())
-        self.root.bind("<Control-c>", lambda e: self._copy_to_clipboard( self.stats_text.get(1.0, tk.END) ))
-
-        self.root.mainloop()
-        self.__post_init__()
-
-        # si el controller existe, resetea su estado para permitir una nueva simulacion sin reiniciar la app, y resetea los paneles de logs, memoria y estadisticas
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-            self._add_sample_processes()
-
-            for item in self.process_metrics_tree.get_children():
-                self.process_metrics_tree.delete(item)
-        self.clear_logs()
-        self.status_label.config(text = "Ready", fg=THEME["text_on_dark"])
-
-        # impotamos 
-        
-        import atexit
-        atexit.register(self.__post_init__)
-
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
-        self.root.bind("<Control-c>", lambda e: self._copy_to_clipboard( self.stats_text.get(1.0, tk.END) ))
-
-        if hasattr(self, 'update_proc_count'):
-            self.update_proc_count = self._update_proc_count
-
-        while True:
-            self.root.update_idletasks()
-            self.root.update()
+        self.root.bind(
+            "<Control-c>",
+            lambda e: self._copy_to_clipboard(self.stats_text.get(1.0, tk.END)),
+        )
 
     def _copy_to_clipboard(self, text: str) -> None:
         self.root.clipboard_clear()
@@ -670,10 +648,8 @@ class OSSimulatorGUI:
         if self.controller:
             for pid, burst, mem, pri in processes:
                 self.controller.add_process(pid, burst, mem, pri)
-            self._update_proc_count()
 
         self._update_proc_count()
-        self.update_proc_count = self._update_proc_count
         
 
     # actualiza el contador de procesos en la status bar, y si el controller existe, llama a su metodo update_process_count para que tambien actualice su contador interno (si es que tiene uno)
@@ -682,14 +658,7 @@ class OSSimulatorGUI:
         count = len(self.tree.get_children())
         self.proc_count_label.config(text=f"{count} process{'es' if count != 1 else ''}")
 
-        if self.controller:
-            self.controller.update_process_count(count)
-        elif hasattr(self, 'update_proc_count'):
-            self.update_proc_count = self._update_proc_count
-
-        with open("process_count.txt", "w") as f:
-            f.write(str(count))
-
+        if self.controller and hasattr(self.controller, "update_process_count"):
             try:
                 self.controller.update_process_count(count)
             except Exception as e:
@@ -699,6 +668,7 @@ class OSSimulatorGUI:
     def get_process_count(self):
         """Retorna el número actual de procesos en la tabla."""
         return len(self.tree.get_children())
+
 
 
 if __name__ == "__main__":

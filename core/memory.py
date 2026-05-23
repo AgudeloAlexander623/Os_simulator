@@ -32,6 +32,14 @@ class PageTable:
     def get_num_pages(self) -> int:
         return len(self.entries)
 
+    def __str__(self) -> str:
+        pid = getattr(self, '_pid', '?')
+        entries = ", ".join(
+            f"PageTableEntry(frame={e.frame}, valid={e.valid})"
+            for e in self.entries
+        )
+        return f"PageTable(pid={pid}, entries=[{entries}], fifo_queue={self.fifo_queue})"
+
 
 class Memory(Observable):
     """Gestiona la memoria del sistema OS con paginación.
@@ -67,6 +75,14 @@ class Memory(Observable):
         self.page_tables: Dict[int, PageTable] = {}
         self.used_frames = 0
 
+    @property
+    def total_frames(self) -> int:
+        return self.num_frames
+
+    @property
+    def free_frames(self) -> int:
+        return self.num_frames - self.used_frames
+
     def allocate(self, process: 'Process') -> bool:
         """Asigna memoria para un proceso usando paginación.
 
@@ -101,6 +117,7 @@ class Memory(Observable):
                     break
 
         self.page_tables[process.pid] = page_table
+        page_table._pid = process.pid
         self.used_frames += num_pages
         logging.info(f"[RAM] asignado PID={process.pid} en {num_pages} páginas ({process.memory} bytes)")
         self.notify({"type": "allocated", "process": process, "used": self.used_frames})

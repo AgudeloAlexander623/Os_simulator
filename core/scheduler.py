@@ -162,5 +162,7 @@ class PriorityScheduler(Scheduler):
 
 class RoundRobinScheduler(Scheduler):
     """Round-Robin: Quantum fijo, como el original."""
-    pass
+
+    def __init__(self, quantum: int):
+        super().__init__(quantum)
 

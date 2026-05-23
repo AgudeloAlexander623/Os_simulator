@@ -12,6 +12,10 @@ class GanttChart:
 
     def record(self, time_step: int, core_id: int, pid: Optional[int]) -> None:
         """Registra qué proceso corre en un core en un momento dado."""
+        if not isinstance(time_step, int) or not isinstance(core_id, int):
+            raise ValueError("time_step and core_id must be integers")
+        if time_step < 0 or core_id < 0:
+            raise ValueError("time_step and core_id must be non-negative")
         while len(self.timeline) <= time_step:
             self.timeline.append({})
         self.timeline[time_step][core_id] = pid
@@ -36,22 +40,24 @@ class GanttChart:
 
             for step in range(len(self.timeline)):
                 pid = self.timeline[step].get(core_id)
-                if pid == prev_pid and pid is not None:
+                if pid == prev_pid:
                     count += 1
                 else:
-                    if prev_pid is not None:
+                    if prev_pid is not None or count > 0:
+                        label = f"P{prev_pid}" if prev_pid is not None else "idle"
                         if count > 1:
-                            row.append(f"P{prev_pid}" + "─" * (count * 2))
+                            row.append(label + "─" * ((count - 1) * 2))
                         else:
-                            row.append(f"P{prev_pid}")
+                            row.append(label)
                     prev_pid = pid
-                    count = 1
+                    count = 1 if pid is not None else 0
 
-            if prev_pid is not None:
+            if prev_pid is not None or count > 0:
+                label = f"P{prev_pid}" if prev_pid is not None else "idle"
                 if count > 1:
-                    row.append(f"P{prev_pid}" + "─" * (count * 2))
+                    row.append(label + "─" * ((count - 1) * 2))
                 else:
-                    row.append(f"P{prev_pid}")
+                    row.append(label)
 
             lines.append(f"Core {core_id}: " + "".join(row))
 

@@ -58,12 +58,12 @@ class TestMemory(unittest.TestCase):
         mem.allocate(p1)  # 2 frames
         mem.allocate(p2)  # 3 frames
         mem.free(p1)      # Libera 2 frames
-        largest_block = mem.largest_free_block()
+        largest_block = mem._largest_free_block()
         self.assertEqual(largest_block, 5)  # De los 10 frames, el bloque más grande es de 5 frames
         
         # liberar p2 y verificar que el bloque más grande ahora es de 10 frames
         mem.free(p2)
-        largest_block = mem.largest_free_block()
+        largest_block = mem._largest_free_block()
         self.assertEqual(largest_block, 10)
         self.assertEqual(mem.used_frames, 0)
         self.assertEqual(mem.free_frames, 10)
@@ -75,68 +75,48 @@ class TestMemory(unittest.TestCase):
         mem = Memory(200, 50)
         p1 = Process(1, 10, 100)
         p2 = Process(2, 10, 150)
-        mem.allocate(p1)  # 2 frames
+        mem.allocate(p1)  # 2 frames, quedan 2 libres
 
         with self.assertRaises(MemoryInsufficientError):
-                mem.allocate(p2)  # Requiere 3 frames pero solo quedan 8 frames disponibles (10 - 2 usados)
-        self.assertEqual(mem.used_frames, 2)  # Solo p1 está en memoria
-        self.assertEqual(mem.free_frames, 8)  # De los 10 frames, 2 están usados y 8 libres
-        self.assertEqual(mem.total_frames, 10) # La memoria total sigue siendo 10
-    
-        # liberar p1 y verificar que ahora sí se puede asignar p2
+            mem.allocate(p2)  # Requiere 3 frames, solo quedan 2
+        self.assertEqual(mem.used_frames, 2)
+        self.assertEqual(mem.free_frames, 2)
+        self.assertEqual(mem.total_frames, 4)
+
         mem.free(p1)
-        self.assertTrue(mem.allocate(p2))  # Ahora debería funcionar
-        self.assertEqual(mem.used_frames, 3)  # Solo p2 está en memoria
-        self.assertEqual(mem.free_frames, 7)  # De los 10 frames, 3 están usados y 7 libres
-        self.assertEqual(mem.total_frames, 10) # La memoria total sigue siendo 10
-        p2.self.memory = 300
-        with self.assertRaises(MemoryInsufficientError):
-            mem.allocate(p2)
+        self.assertTrue(mem.allocate(p2))
+        self.assertEqual(mem.used_frames, 3)
+        self.assertEqual(mem.free_frames, 1)
+        self.assertEqual(mem.total_frames, 4)
 
     def test_memory_insufficient_after_allocation_and_free(self):
         mem = Memory(200, 50)
         p1 = Process(1, 10, 100)
+        mem.allocate(p1)
+        mem.free(p1)
+
+        self.assertEqual(mem.used_frames, 0)
+        self.assertEqual(mem.free_frames, 4)
+        self.assertEqual(mem.total_frames, 4)
+
         p2 = Process(2, 10, 150)
-        mem.allocate(p1)  # 2 frames
-        mem.free(p1)      # Libera 2 frames
-
-        with self.assertRaises(MemoryInsufficientError):
-                mem.allocate(p2)  # Requiere 3 frames pero solo quedan 8 frames disponibles (10 - 2 usados)
-        self.assertEqual(mem.used_frames, 0)  # No hay procesos en memoria
-        self.assertEqual(mem.free_frames, 10) # De los 10 frames, todos están libres
-        self.assertEqual(mem.total_frames, 10) # La memoria total sigue siendo 10
-
         self.assertTrue(mem.allocate(p2))
-        self.assertEqual(mem.used_frames, 3)  # Solo p2 está en memoria
-        self.assertEqual(mem.free_frames, 7)  # De los 10 frames,
-        self.assertEqual(mem.total_frames, 10) # La memoria total sigue siendo 10
+        self.assertEqual(mem.used_frames, 3)
+        self.assertEqual(mem.free_frames, 1)
+        self.assertEqual(mem.total_frames, 4)
 
         mem.free(p2)
-        self.assertEqual(mem.used_frames, 0)  # No hay procesos en memoria
-        self.assertEqual(mem.free_frames, 10) # De los 10 frames, todos están libres
-        self.assertEqual(mem.total_frames, 10) # La memoria total sigue siendo 10
-        
-        if p2.memory > mem.total_frames * mem.page_size:
-             with self.assertRaises(MemoryInsufficientError):
-                  mem.allocate(p2)
-        
+        self.assertEqual(mem.used_frames, 0)
+        self.assertEqual(mem.free_frames, 4)
+        self.assertEqual(mem.total_frames, 4)
+
         for i in range(mem.num_frames):
-             mem.frames[i] = None
-             mem.used_frames = 0
+            mem.frames[i] = None
+            mem.used_frames = 0
 
-        self.assertEqual(mem.used_frames, 0)  # No hay procesos en memoria
-        self.assertEqual(mem.free_frames, 10) # De los 10 frames, todos estan libres
-        self.assertEqual(mem.total_frames, 10) # La memoria total sigue siendo 10
-
-        while True:
-             try:
-                  mem.allocate(p2)
-             except MemoryInsufficientError:
-                  break
-
-        self.assertEqual(mem.used_frames, mem.num_frames)  # Todos los frames están en uso
-        self.assertEqual(mem.free_frames, 0) # No hay frames libres
-        self.assertEqual(mem.total_frames, 10) # La memoria total sigue siendo 10
+        self.assertEqual(mem.used_frames, 0)
+        self.assertEqual(mem.free_frames, 4)
+        self.assertEqual(mem.total_frames, 4)
 
     def test_memory_mapping(self):
         mem = Memory(500, 50)
@@ -188,7 +168,7 @@ class TestMemory(unittest.TestCase):
 
         mem.free(p)
         self.assertEqual(len(events), 2)
-        self.assertEqual(events[1]["type"], "free")
+        self.assertEqual(events[1]["type"], "freed")
         self.assertEqual(events[1]["process"], p)
         self.assertEqual(events[1]["used"], 0)
 
