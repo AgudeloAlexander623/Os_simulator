@@ -1,11 +1,16 @@
 # Copyright (c) 2026 Jessid Alexander Agudelo — Universidad del Valle
 # Educational use only. See LICENSE for details.
 
+"""Tests para utils/gantt.py.
+
+Cubre registro de time steps en el timeline, renderizado multi-core,
+casos borde (time gaps, idle, overlapping) y validación de entradas
+inválidas (negativos, tipo incorrecto).
+"""
+
 import unittest
 import sys
 import os
-import logging
-import threading
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 

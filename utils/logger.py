@@ -1,6 +1,13 @@
 # Copyright (c) 2026 Jessid Alexander Agudelo — Universidad del Valle
 # Educational use only. See LICENSE for details.
 
+"""Configuración del sistema de logging.
+
+Define el formato, nivel (por defecto INFO, overrideable con la
+variable de entorno OS_SIM_LOG_LEVEL) y dos salidas: stdout y un
+archivo rotativo en logs/simulation.log.
+"""
+
 import logging
 import os
 import sys

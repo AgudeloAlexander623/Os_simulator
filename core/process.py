@@ -1,6 +1,14 @@
 # Copyright (c) 2026 Jessid Alexander Agudelo — Universidad del Valle
 # Educational use only. See LICENSE for details.
 
+"""Modelo de datos de un proceso del sistema operativo.
+
+Un proceso tiene un PID, tiempo de ráfaga, requisitos de memoria,
+prioridad, y opcionalmente operaciones de I/O. Provee métodos para
+ejecutar por un quantum, calcular métricas (waiting, turnaround,
+response time) y manejar bloqueos por I/O.
+"""
+
 from dataclasses import dataclass, field
 from core.states import ProcessState
 

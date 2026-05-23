@@ -1,8 +1,17 @@
 # Copyright (c) 2026 Jessid Alexander Agudelo — Universidad del Valle
 # Educational use only. See LICENSE for details.
 
+"""Controlador de la simulación (patrón MVC).
+
+Orquesta la simulación completa: crea el scheduler, la memoria y el
+sistema de archivos, registra procesos, los carga en memoria, arranca
+los workers en sus cores, maneja llegadas escalonadas y calcula las
+métricas finales (throughput, tiempos promedio, utilización de CPU).
+"""
+
 import logging
 import threading
+import time
 from typing import List, Callable
 from core.process import Process
 from core.scheduler import Scheduler, FCFSScheduler, SJFScheduler, PriorityScheduler, RoundRobinScheduler
@@ -77,16 +86,11 @@ class SimulationController:
         self.processes.append(process)
 
     def remove_process(self, pid: int) -> bool:
-        """Elimina un proceso por su PID.
-
-        Returns:
-            True si se encontró y eliminó, False en caso contrario.
-        """
         original_len = len(self.processes)
         self.processes = [p for p in self.processes if p.pid != pid]
         found = len(self.processes) < original_len
 
-        if found and isinstance(self.scheduler, PriorityScheduler):
+        if found:
             self.scheduler.remove_process(pid)
 
         return found
@@ -137,7 +141,6 @@ class SimulationController:
             self.scheduler.submission_complete.clear()
 
             def submit_staggered():
-                import time
                 for p in staggered:
                     time.sleep(p.arrival_time * 0.01)
                     self.scheduler.add_process(p)

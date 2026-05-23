@@ -1,6 +1,19 @@
+"""Interfaz gráfica del simulador OS (tkinter).
+
+Organizada en paneles:
+- Configuración: tipo de scheduler, quantum, memoria, cores, overhead
+- Tabla de procesos: agregar, quitar, resetear a los de ejemplo
+- Mapa de memoria: muestra el estado de los frames después de simular
+- Log: salida en tiempo real del logging
+- Estadísticas y Gantt: resultados numéricos más diagrama de Gantt
+- Barra de estado: indicador de proceso y contador
+
+La simulación corre en un hilo aparte para no congelar la interfaz.
+"""
+
 import os
 import sys
-from typing import Optional
+from typing import Optional, Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -13,9 +26,6 @@ import threading
 import logging
 
 
-# ==============================================================================
-# Modern Theme Palette
-# ==============================================================================
 THEME = {
     "bg_primary": "#f5f5f5",
     "bg_secondary": "#ffffff",
@@ -47,6 +57,8 @@ FONT_MONO_SMALL = ("Consolas", 9)
 
 
 class TextHandler(logging.Handler):
+    """Redirige los logs de logging a un widget Text de tkinter."""
+
     def __init__(self, text_widget: tk.Text) -> None:
         super().__init__()
         self.text_widget = text_widget
@@ -58,6 +70,12 @@ class TextHandler(logging.Handler):
 
 
 class OSSimulatorGUI:
+    """Ventana principal del simulador.
+
+    Construye toda la interfaz, maneja los eventos del usuario y lanza
+    la simulación en un hilo separado.
+    """
+
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("OS Simulator — J. Agudelo (Univalle 2026)")
@@ -74,11 +92,10 @@ class OSSimulatorGUI:
         self._configure_event_bindings()
 
     def _create_layout(self) -> None:
-        # ---- Top section: controls + process table (side by side) ----
+        """Construye la disposición de todos los paneles de la ventana."""
         top_frame = tk.Frame(self.root, bg=THEME["bg_primary"])
         top_frame.pack(fill="both", expand=True, padx=12, pady=8)
 
-        # Left: Configuration panel
         config_card = self._create_card(top_frame, "Configuration")
         config_card.pack(side="left", fill="both", padx=(0, 6))
 
@@ -86,7 +103,6 @@ class OSSimulatorGUI:
         config_content.pack(fill="both", expand=True, padx=12, pady=8)
         self._build_config_controls(config_content)
 
-        # Right: Process table
         process_card = self._create_card(top_frame, "Processes")
         process_card.pack(side="right", fill="both", expand=True, padx=(6, 0))
 
@@ -94,37 +110,30 @@ class OSSimulatorGUI:
         process_content.pack(fill="both", expand=True, padx=12, pady=8)
         self._build_process_table(process_content)
 
-        # ---- Bottom section: memory + logs + stats ----
         bottom_paned = tk.PanedWindow(
             self.root, orient="horizontal", bg=THEME["border"], sashwidth=4
         )
         bottom_paned.pack(fill="both", expand=True, padx=12, pady=(0, 8))
 
-        # Memory panel
         memory_card = tk.Frame(bottom_paned, bg=THEME["bg_secondary"])
         self._build_card_inside(memory_card, "Memory Map")
         bottom_paned.add(memory_card, minsize=200)
         self._build_memory_panel(memory_card)
 
-        # Logs panel - hijo directo del PanedWindow
         logs_card = tk.Frame(bottom_paned, bg=THEME["bg_secondary"])
         self._build_card_inside(logs_card, "Log")
         bottom_paned.add(logs_card, minsize=250)
-
         self._build_log_panel(logs_card)
 
-        # Stats panel - hijo directo del PanedWindow
         stats_card = tk.Frame(bottom_paned, bg=THEME["bg_secondary"])
         self._build_card_inside(stats_card, "Statistics & Gantt")
         bottom_paned.add(stats_card, minsize=300)
-
         self._build_stats_panel(stats_card)
 
-        # ---- Status bar ----
         self._build_statusbar()
 
     def _create_card(self, parent: tk.Widget, title: str) -> tk.Frame:
-        """Crea un frame card con título. Retorna el frame contenedor."""
+        """Crea un frame tipo tarjeta con una barra de título arriba."""
         outer = tk.Frame(parent, bg=THEME["bg_secondary"], relief="flat")
 
         title_bar = tk.Frame(outer, bg=THEME["bg_secondary"])
@@ -140,7 +149,7 @@ class OSSimulatorGUI:
         return outer
 
     def _build_card_inside(self, frame: tk.Frame, title: str) -> None:
-        """Agrega título y separador dentro de un frame existente (para PanedWindow)."""
+        """Pinta título y separador dentro de un frame (para usar con PanedWindow)."""
         title_bar = tk.Frame(frame, bg=THEME["bg_secondary"])
         title_bar.pack(fill="x", padx=12, pady=(10, 6))
 
@@ -152,6 +161,7 @@ class OSSimulatorGUI:
         tk.Frame(frame, height=1, bg=THEME["border"]).pack(fill="x", padx=12)
 
     def _build_config_controls(self, parent: tk.Widget) -> None:
+        """Crea los controles de configuración: scheduler, quantum, memoria, cores y overhead."""
         fields = [
             ("Scheduler", "sched_var", config.SCHEDULER_TYPE, True),
             ("Quantum", "quantum_var", config.QUANTUM, False),
@@ -266,8 +276,8 @@ class OSSimulatorGUI:
             activebackground="#4b5563", cursor="hand2",
         ).pack(side="right")
 
-    # 
     def _build_log_panel(self, parent: tk.Widget) -> None:
+        """Crea el panel de log con ScrollText y conecta el handler de logging."""
         content = tk.Frame(parent, bg=THEME["bg_secondary"])
         content.pack(fill="both", expand=True, padx=12, pady=8)
 
@@ -282,8 +292,8 @@ class OSSimulatorGUI:
         logging.getLogger().addHandler(handler)
         logging.getLogger().setLevel(logging.INFO)
 
-    #
     def _build_memory_panel(self, parent: tk.Widget) -> None:
+        """Crea el panel que muestra el mapa de memoria después de la simulación."""
         content = tk.Frame(parent, bg=THEME["bg_secondary"])
         content.pack(fill="both", expand=True, padx=12, pady=8)
 
@@ -295,8 +305,8 @@ class OSSimulatorGUI:
         self.memory_text.pack(fill="both", expand=True)
         self.memory_text.insert(tk.END, "Run a simulation to see memory usage.")
 
-    # 
     def _build_stats_panel(self, parent: tk.Widget) -> None:
+        """Crea el panel de estadísticas con Gantt y tabla de métricas por proceso."""
         content = tk.Frame(parent, bg=THEME["bg_secondary"])
         content.pack(fill="both", expand=True, padx=12, pady=8)
 
@@ -331,8 +341,8 @@ class OSSimulatorGUI:
             self.process_metrics_tree.heading(col, text=col)
             self.process_metrics_tree.column(col, width=col_widths[col], anchor="center")
     
-    # 
     def _build_statusbar(self) -> None:
+        """Crea la barra inferior con el estado y el contador de procesos."""
         self.status_bar = tk.Frame(self.root, bg=THEME["bg_statusbar"], height=28)
         self.status_bar.pack(fill="x", side="bottom")
 
@@ -349,8 +359,8 @@ class OSSimulatorGUI:
         self.proc_count_label.pack(side="right")
         self._update_proc_count()
     
-    # 
     def _setup_styles(self) -> None:
+        """Configura el tema visual de ttk (Treeview, Combobox)."""
         style = ttk.Style()
         style.theme_use("clam")
         style.configure(
@@ -371,25 +381,25 @@ class OSSimulatorGUI:
             font=FONT_SMALL,
         )
     
-    # 
     def _update_proc_count(self) -> None:
+        """Actualiza el label del contador de procesos en la barra de estado."""
         count = len(self.tree.get_children())
         self.proc_count_label.config(text=f"{count} process{'es' if count != 1 else ''}")
     
     # 
     def _add_sample_processes(self) -> None:
-        for pid, burst, mem, pri, arrival in sample_processes():
-            self.tree.insert("", "end", values=(pid, burst, mem, pri, arrival, 0))
+        for pid, burst, mem, pri, arrival, io_time in sample_processes():
+            self.tree.insert("", "end", values=(pid, burst, mem, pri))
         self._update_proc_count()
     
-    # 
     def _reset_processes(self) -> None:
+        """Reemplaza todos los procesos de la tabla por los de ejemplo."""
         for item in self.tree.get_children():
             self.tree.delete(item)
         self._add_sample_processes()
     
-    # 
     def add_process(self) -> None:
+        """Abre una ventana emergente para agregar un proceso nuevo a la tabla."""
         win = tk.Toplevel(self.root)
         win.title("Add Process")
         win.geometry("320x220")
@@ -416,8 +426,8 @@ class OSSimulatorGUI:
             entry.insert(0, "0")
             entries.append(entry)
         
-        # 
         def save():
+            """Valida los datos ingresados y agrega el proceso a la tabla."""
             try:
                 values = [int(e.get()) for e in entries]
                 pid, burst, mem, pri = values
@@ -455,15 +465,15 @@ class OSSimulatorGUI:
 
         win.bind("<Return>", lambda _: save())
 
-    # 
     def remove_process(self) -> None:
+        """Elimina el proceso seleccionado de la tabla."""
         selected = self.tree.selection()
         if selected:
             self.tree.delete(selected)
             self._update_proc_count()
 
-    # 
     def start_simulation(self) -> None:
+        """Toma la configuración actual, crea el controller y lanza la simulación en un hilo."""
         if self.is_running:
             return
 
@@ -475,7 +485,7 @@ class OSSimulatorGUI:
         for item in self.process_metrics_tree.get_children():
             self.process_metrics_tree.delete(item)
 
-        self.status_label.config(text="Simulating...", fg="#facc15")
+        self.status_label.config(text="Simulating...", fg="#facc15", bg=THEME["bg_statusbar"])
 
         sched_type = self.sched_var.get()
         quantum = self.quantum_var.get()
@@ -496,13 +506,17 @@ class OSSimulatorGUI:
         sim_thread = threading.Thread(target=self._run_simulation_thread)
         sim_thread.start()
 
-    # 
     def _run_simulation_thread(self) -> None:
-        stats = self.controller.start_simulation()
-        self.root.after(0, self.on_simulation_end, stats)
+        """Ejecuta la simulación (corre en un hilo aparte) y actualiza la UI al terminar."""
+        try:
+            stats = self.controller.start_simulation()
+            self.root.after(0, self.on_simulation_end, stats)
+        except Exception as e:
+            logging.exception("Simulation crashed")
+            self.root.after(0, self._reset_ui_after_error, str(e))
     
-    # 
     def on_simulation_end(self, stats: dict) -> None:
+        """Callback que se ejecuta al terminar la simulación: muestra resultados, memoria y re-activa la UI."""
         cpu_pct = stats['cpu_utilization'] * 100
 
         stats_text = (
@@ -557,8 +571,8 @@ class OSSimulatorGUI:
 
         logging.info("Simulation finished")
     
-    # actualiza la tabla de metricas de procesos con los datos finales de cada proceso al terminar la simulacion
     def _update_process_metrics_table(self, metrics: list) -> None:
+        """Refresca la tabla de métricas por proceso con los datos de la simulación."""
         for item in self.process_metrics_tree.get_children():
             self.process_metrics_tree.delete(item)
 
@@ -574,9 +588,8 @@ class OSSimulatorGUI:
                 ),
             )
 
-    # lipia los logs, el panel de memoria y el de estadisticas, y resetea la tabla de metricas de procesos
-    # no reseta la tabla de procesos, para facilitar iteraciones rapidas con diferentes configuraciones sin tener que volver a agregar los procesos de muestra cada vez
     def _clear_logs(self) -> None:
+        """Limpia logs, memoria, estadísticas y métricas, pero deja la tabla de procesos intacta."""
         self.log_text.delete(1.0, tk.END)
         self.memory_text.config(state="normal")
         self.memory_text.delete(1.0, tk.END)
@@ -589,44 +602,51 @@ class OSSimulatorGUI:
         for item in self.process_metrics_tree.get_children():
             self.process_metrics_tree.delete(item)
 
-    # resetea la tabla de procesos al estado inicial con los procesos de mmuestra, y resetea el controller (si exite)
-    # tambien actualiza el contador de procesos en la status bar
     def _reset_processes(self) -> None:
+        """Reemplaza la tabla de procesos con los procesos de ejemplo."""
         for item in self.tree.get_children():
             self.tree.delete(item)
         self._add_sample_processes()
 
-    # resetea el estado del controller (si existe) para permitir una nueva simulacion sin reiniciar la app, y resetea los paneles de logs, memoria y estadisticas
+    def _reset_ui_after_error(self, error_msg: str) -> None:
+        """Rehabilita la interfaz después de un error en la simulación y muestra el mensaje."""
+        self.is_running = False
+        self.start_button.config(state="normal", bg=THEME["bg_button_primary"])
+        self.clear_btn.config(state="normal")
+        self.status_label.config(text=f"Error: {error_msg}", fg=THEME["bg_button_danger"], bg=THEME["bg_statusbar"])
+        logging.error(f"Simulation error: {error_msg}")
+
     def reset(self) -> None:
-        """Resetea el estado del controller para permitir una nueva simulacion sin reiniciar la app."""
+        self.is_running = False
+        self.start_button.config(state="normal", bg=THEME["bg_button_primary"])
+        self.clear_btn.config(state="normal")
         self._reset_processes()
         self._clear_logs()
-        self.status_label.config(text = "Ready", fg=THEME["text_on_dark"])
+        self.status_label.config(text="OS Simulator — J. Agudelo | Univalle 2026 | Ready", fg=THEME["text_on_dark"], bg=THEME["bg_statusbar"])
         
-    # agrega un proceso al controller durante la simulacion (si controller existe), y actualiza el contador de procesos en la status bar
     def add_process_to_controller(self, pid: int, burst: int, mem: int, pri: int) -> None:
+        """Agrega un proceso al controller durante la simulación y actualiza el contador."""
         """Agrega un proceso al controller durante la simulacion (si controller existe)."""
         if self.controller:
             self.controller.add_process(pid, burst, mem, pri)
             self._update_proc_count()
     
-    # remueve un proceso del controller durante la simulacion (solo si controller existe), y actualiza el contador de procesos en la status bar
-    def remove_process_from_controller(self,pid:int) -> None:
+    def remove_process_from_controller(self, pid: int) -> None:
+        """Remueve un proceso del controller durante la simulación y actualiza el contador."""
         """Remueve un proceso del controller durante la simulacion."""
         if self.controller:
             self.controller.remove_process(pid)
             self._update_proc_count()
 
-    # maneja el evento de cierre de la ventana, preguntando al usuario si realmente quiere salir si hay una simulacion en curso
     def on_closing(self) -> None:
+        """Pregunta confirmación si hay una simulación corriendo antes de cerrar."""
         if self.is_running and messagebox.askokcancel("Quit", "A simulation is running. Do you really want to quit?"):
             self.root.destroy()
         elif not self.is_running:
             self.root.destroy()
 
-    # configura el protocolo de cierre de la ventana para llamar al metodo on_closing,
-    # que maneja el cierre de la app de forma segura incluso si hay una simulacion en curso
     def _configure_event_bindings(self) -> None:
+        """Registra el cierre seguro (Ctrl+W) y atajos de teclado (Ctrl+R reset, Ctrl+C copiar stats)."""
         """Registra atajos de teclado y el cierre seguro de la ventana."""
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.root.bind("<Control-r>", lambda e: self.reset())
@@ -652,8 +672,8 @@ class OSSimulatorGUI:
         self._update_proc_count()
         
 
-    # actualiza el contador de procesos en la status bar, y si el controller existe, llama a su metodo update_process_count para que tambien actualice su contador interno (si es que tiene uno)
     def update_proc_count(self) -> None:
+        """Actualiza el contador de procesos en la barra de estado."""
         """Actualiza el contador de procesos en la status bar."""
         count = len(self.tree.get_children())
         self.proc_count_label.config(text=f"{count} process{'es' if count != 1 else ''}")

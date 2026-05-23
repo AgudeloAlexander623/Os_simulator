@@ -1,6 +1,14 @@
 # Copyright (c) 2026 Jessid Alexander Agudelo — Universidad del Valle
 # Educational use only. See LICENSE for details.
 
+"""Tests de integración entre componentes.
+
+Verifica que scheduler + worker + memory funcionan juntos:
+simulaciones completas con FCFS, SJF, Round-Robin y Priority,
+el SimulationController end-to-end, la integración Memory+Observer,
+y casos borde del CoreWorker (overhead, Gantt, errores, I/O).
+"""
+
 import unittest
 from controllers.simulation_controller import SimulationController
 from core.process import Process, ProcessState

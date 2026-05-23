@@ -1,6 +1,14 @@
 # Copyright (c) 2026 Jessid Alexander Agudelo — Universidad del Valle
 # Educational use only. See LICENSE for details.
 
+"""Sistema de archivos virtual con estructura de directorios.
+
+Implementa un sistema de archivos básico con inodos: soporta creación
+de directorios y archivos, lectura/escritura, eliminación, listado de
+contenido y representación en árbol. Cada operación registra el PID
+del proceso que la realiza. Tiene capacidad limitada.
+"""
+
 import logging
 from typing import Dict, List, Optional
 from dataclasses import dataclass, field

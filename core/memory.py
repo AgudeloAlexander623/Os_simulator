@@ -1,6 +1,17 @@
 # Copyright (c) 2026 Jessid Alexander Agudelo — Universidad del Valle
 # Educational use only. See LICENSE for details.
 
+"""Gestión de memoria con paginación.
+
+Implementa un sistema de memoria paginada: divide la memoria física en
+frames y asigna páginas a los procesos según su demanda. Incluye:
+- Asignación y liberación de memoria por proceso
+- Tablas de páginas con entrada por página
+- Cálculo de fragmentación externa
+- Mapa de memoria visual
+- Patrón Observer para notificar eventos de memoria
+"""
+
 import logging
 from typing import TYPE_CHECKING, List, Dict, Optional
 from utils.observer import Observable

@@ -1,6 +1,16 @@
 # Copyright (c) 2026 Jessid Alexander Agudelo — Universidad del Valle
 # Educational use only. See LICENSE for details.
 
+"""Worker que ejecuta procesos en un núcleo simulado.
+
+Cada CoreWorker corre en su propio hilo y ejecuta el loop de
+planificación: obtiene un proceso del scheduler, lo ejecuta por un
+quantum, registra su progreso en el diagrama de Gantt, y maneja los
+estados TERMINATED (libera memoria), BLOCKED (procesa I/O) y READY
+(re-encola). Usa locks globales para acceso seguro al scheduler y la
+memoria desde múltiples cores.
+"""
+
 import threading
 import logging
 import time
@@ -84,10 +94,10 @@ class CoreWorker(threading.Thread):
                     process.completion_time = self.current_time
                     self.scheduler.mark_terminated()
                     with memory_lock:
-                        try:
+                        if process.pid in self.memory.page_tables:
                             self.memory.free(process)
-                        except ValueError as e:
-                            logging.warning(f"[{self.name}] Error liberando memoria PID={process.pid}: {e}")
+                        else:
+                            logging.error(f"[{self.name}] PID={process.pid} no tiene memoria asignada, posible leak")
 
                 elif process.state == ProcessState.BLOCKED:
                     io_time = process.request_io()
@@ -100,7 +110,7 @@ class CoreWorker(threading.Thread):
                         self.scheduler.add_to_io_queue(process)
                 elif process.state == ProcessState.READY:
                     with scheduler_lock:
-                        self.scheduler._enqueue(process)
+                        self.scheduler.enqueue(process)
             else:
                 # Cola vacía pero pueden llegar más procesos
                 time.sleep(0.05)
