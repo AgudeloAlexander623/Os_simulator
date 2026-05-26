@@ -20,6 +20,8 @@ import heapq
 import threading
 import logging
 
+from core.states import ProcessState
+
 if TYPE_CHECKING:
     from core.process import Process
 
@@ -126,19 +128,40 @@ class Scheduler:
     def _get_from_io(self) -> Optional['Process']:
         """Obtiene el siguiente proceso de la cola de I/O.
 
-        Similar a _get_from_queue pero para procesos que vuelven de
-        operaciones de I/O.
+        Solo retorna procesos cuyo ``io_block_remaining`` haya llegado a 0.
+        Por cada unidad de tiempo que el scheduler consulta la cola, se
+        descuenta 1 del tiempo de bloqueo restante, permitiendo que otros
+        procesos se ejecuten mientras tanto.
 
         Returns:
-            Proceso siguiente o None si la cola está vacía.
+            Proceso listo o None si la cola está vacía o ningún proceso
+            ha completado su I/O.
         """
+        temp: list['Process'] = []
+        ready: Optional['Process'] = None
+
         while not self.io_queue.empty():
             p = self.io_queue.get()
-            if p.pid not in self._cancelled_pids:
-                return p
-            with self._count_lock:
-                self._active_count -= 1
-        return None
+            if p.pid in self._cancelled_pids:
+                with self._count_lock:
+                    self._active_count -= 1
+                continue
+            if p.io_block_remaining > 0:
+                p.io_block_remaining -= 1
+                p.io_elapsed += 1
+                temp.append(p)
+            elif ready is None:
+                ready = p
+            else:
+                temp.append(p)
+
+        for p in temp:
+            self.io_queue.put(p)
+
+        if ready is not None:
+            ready.state = ProcessState.READY
+
+        return ready
 
     def get_process(self) -> Optional['Process']:
         """Obtiene el siguiente proceso a ejecutar.
@@ -221,6 +244,33 @@ class Scheduler:
         logger.info(f"PID {pid} marcado como cancelado")
         return True
 
+    def _drain_pid_from_heap(self, pid: int) -> int:
+        """Elimina todas las entradas de un PID del heap y retorna cuántas se quitaron.
+
+        Ajusta ``_active_count`` por cada entrada removida para mantener
+        la coherencia del conteo de procesos activos. Es segura de llamar
+        incluso en schedulers sin heap (FCFS, Round-Robin) — en ese caso
+        retorna 0 inmediatamente.
+
+        Args:
+            pid: PID a eliminar del heap.
+
+        Returns:
+            int: Número de entradas eliminadas del heap.
+        """
+        heap = getattr(self, 'heap', None)
+        if heap is None:
+            return 0
+        old_len = len(heap)
+        heap = [(rt, c, p) for rt, c, p in heap if p.pid != pid]
+        heapq.heapify(heap)
+        self.heap = heap
+        removed = old_len - len(heap)
+        if removed > 0:
+            with self._count_lock:
+                self._active_count -= removed
+        return removed
+
 
 class FCFSScheduler(Scheduler):
     """First-Come, First-Served: Procesa en orden de llegada, sin quantum."""
@@ -243,6 +293,7 @@ class SJFScheduler(Scheduler):
 
         if process.pid in self._cancelled_pids:
             self._cancelled_pids.discard(process.pid)
+            self._drain_pid_from_heap(process.pid)
 
         self.enqueue(process)
 
@@ -269,10 +320,8 @@ class SJFScheduler(Scheduler):
         return None
 
     def remove_process(self, pid: int) -> bool:
-        old_len = len(self.heap)
-        self.heap = [(rt, c, p) for rt, c, p in self.heap if p.pid != pid]
-        heapq.heapify(self.heap)
-        if len(self.heap) < old_len:
+        removed = self._drain_pid_from_heap(pid)
+        if removed > 0:
             self._cancelled_pids.add(pid)
             return True
         return super().remove_process(pid)
@@ -292,6 +341,7 @@ class PriorityScheduler(Scheduler):
 
         if process.pid in self._cancelled_pids:
             self._cancelled_pids.discard(process.pid)
+            self._drain_pid_from_heap(process.pid)
 
         self.enqueue(process)
 
@@ -326,10 +376,8 @@ class PriorityScheduler(Scheduler):
         heapq.heappush(self.heap, (new_priority, self._counter, process))
 
     def remove_process(self, pid: int) -> bool:
-        old_len = len(self.heap)
-        self.heap = [(pr, c, p) for pr, c, p in self.heap if p.pid != pid]
-        heapq.heapify(self.heap)
-        if len(self.heap) < old_len:
+        removed = self._drain_pid_from_heap(pid)
+        if removed > 0:
             self._cancelled_pids.add(pid)
             return True
         return super().remove_process(pid)

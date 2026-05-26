@@ -8,6 +8,7 @@ de forma interactiva.
 """
 
 import tkinter as tk
+import utils.logger  # noqa: F401 — configura logging (archivo + stdout)
 from GUI.gui import OSSimulatorGUI
 
 

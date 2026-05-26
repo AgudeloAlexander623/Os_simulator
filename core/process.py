@@ -42,6 +42,8 @@ class Process:
     first_scheduled_time: int = field(default=-1)
     io_blocked_time: int = field(default=0)
     total_io_time: int = field(default=0)
+    io_block_remaining: int = field(default=0)
+    io_elapsed: int = field(default=0)
 
     def __post_init__(self) -> None:
         """Inicializa remaining_time y valida atributos."""
@@ -127,5 +129,6 @@ class Process:
             self.state = ProcessState.BLOCKED
             self.io_blocked_time = io_time
             self.total_io_time += io_time
+            self.io_block_remaining = io_time
             return io_time
         return 0

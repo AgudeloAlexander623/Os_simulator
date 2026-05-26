@@ -26,8 +26,8 @@ import threading
 import logging
 
 
-LIGHT_THEME = {
-    "bg_primary": "#f5f5f5",
+THEME = {
+    "bg_primary": "#f5f5f5",    
     "bg_secondary": "#ffffff",
     "bg_card": "#ffffff",
     "bg_input": "#f0f0f0",
@@ -46,37 +46,7 @@ LIGHT_THEME = {
     "log_fg": "#22d3ee",
     "stats_bg": "#f8fafc",
     "stats_fg": "#1e293b",
-    "toggle_bg": "#1e293b",
-    "toggle_fg": "#e2e8f0",
-    "toggle_active": "#334155",
 }
-
-DARK_THEME = {
-    "bg_primary": "#0f172a",
-    "bg_secondary": "#1e293b",
-    "bg_card": "#1e293b",
-    "bg_input": "#334155",
-    "bg_button_primary": "#3b82f6",
-    "bg_button_secondary": "#475569",
-    "bg_button_danger": "#ef4444",
-    "bg_success": "#22c55e",
-    "bg_statusbar": "#020617",
-    "text_primary": "#e2e8f0",
-    "text_secondary": "#94a3b8",
-    "text_on_primary": "#ffffff",
-    "text_on_dark": "#cbd5e1",
-    "border": "#334155",
-    "accent": "#3b82f6",
-    "log_bg": "#020617",
-    "log_fg": "#22d3ee",
-    "stats_bg": "#0f172a",
-    "stats_fg": "#e2e8f0",
-    "toggle_bg": "#64748b",
-    "toggle_fg": "#ffffff",
-    "toggle_active": "#475569",
-}
-
-THEME = LIGHT_THEME
 
 FONT_BASE = ("Segoe UI", 10)
 FONT_BOLD = ("Segoe UI", 10, "bold")
@@ -115,7 +85,6 @@ class OSSimulatorGUI:
 
         self.controller: Optional[SimulationController] = None
         self.is_running = False
-        self._dark_mode = False
 
         self._create_layout()
         self._setup_styles()
@@ -371,33 +340,22 @@ class OSSimulatorGUI:
 
         col_widths = {
             "PID": 50, "Burst": 60, "Priority": 60,
-            "Waiting": 80, "Turnaround": 90, "Response": 90,
+            "Waiting": 80, "Turnaround": 90, "Response": 90,    
         }
         for col in columns:
             self.process_metrics_tree.heading(col, text=col)
             self.process_metrics_tree.column(col, width=col_widths[col], anchor="center")
     
     def _build_statusbar(self) -> None:
-        """Crea la barra inferior con el estado, botón de tema y contador de procesos."""
+        """Crea la barra inferior con el estado y el contador de procesos."""
         self.status_bar = tk.Frame(self.root, bg=THEME["bg_statusbar"], height=28)
         self.status_bar.pack(fill="x", side="bottom")
 
         self.status_label = tk.Label(
-            self.status_bar, text="OS Simulator — J. Agudelo | Univalle 2026 | Ready",
-            bg=THEME["bg_statusbar"],
+            self.status_bar, text="OS Simulator — J. Agudelo | Univalle 2026 | Ready", bg=THEME["bg_statusbar"],
             fg=THEME["text_on_dark"], font=FONT_SMALL, anchor="w", padx=12,
         )
         self.status_label.pack(side="left")
-
-        self.theme_btn = tk.Button(
-            self.status_bar, text="☀ Light / Dark",
-            command=self._toggle_theme,
-            bg=THEME["toggle_bg"], fg=THEME["toggle_fg"],
-            font=FONT_SMALL, relief="flat", bd=0, padx=10, pady=1,
-            activebackground=THEME["toggle_active"],
-            cursor="hand2",
-        )
-        self.theme_btn.pack(side="right", padx=(0, 8))
 
         self.proc_count_label = tk.Label(
             self.status_bar, text="", bg=THEME["bg_statusbar"],
@@ -534,6 +492,57 @@ class OSSimulatorGUI:
         if self.is_running:
             return
 
+        # ── Validación de entrada ──────────────────────────────
+        try:
+            sched_type = self.sched_var.get()
+            quantum = self.quantum_var.get()
+            memory_cap = self.memory_var.get()
+            num_cores = max(1, self.cores_var.get())
+            overhead = max(0, self.overhead_var.get())
+        except (ValueError, tk.TclError) as e:
+            messagebox.showerror("Invalid Input", f"Check configuration fields:\n{e}")
+            return
+
+        if quantum < 0:
+            messagebox.showerror("Invalid Input", "Quantum cannot be negative")
+            return
+        if memory_cap <= 0:
+            messagebox.showerror("Invalid Input", "Memory capacity must be positive")
+            return
+        if num_cores < 1:
+            messagebox.showerror("Invalid Input", "At least 1 core is required")
+            return
+        if overhead < 0:
+            messagebox.showerror("Invalid Input", "Context switch overhead cannot be negative")
+            return
+
+        # ── Crear controlador ──────────────────────────────────
+        try:
+            self.controller = SimulationController(
+                sched_type, quantum, memory_cap, num_cores, overhead
+            )
+        except ValueError as e:
+            messagebox.showerror("Configuration Error", str(e))
+            return
+
+        self.controller.on_simulation_end = self.on_simulation_end
+
+        # ── Cargar procesos del árbol a la simulación ──────────
+        for item in self.tree.get_children():
+            values = self.tree.item(item, 'values')
+            try:
+                pid = int(values[0])
+                burst = int(values[1])
+                mem = int(values[2])
+                pri = int(values[3])
+                arrival = int(values[4]) if len(values) > 4 else 0
+                io_time = int(values[5]) if len(values) > 5 else 0
+                self.controller.add_process(pid, burst, mem, pri, arrival, io_time)
+            except (ValueError, IndexError) as e:
+                messagebox.showerror("Process Error", f"Invalid process data:\n{e}")
+                return
+
+        # ── Iniciar UI de simulación ──────────────────────────
         self.is_running = True
         self.start_button.config(state="disabled", bg="#94a3b8")
         self.clear_btn.config(state="disabled")
@@ -543,27 +552,6 @@ class OSSimulatorGUI:
             self.process_metrics_tree.delete(item)
 
         self.status_label.config(text="Simulating...", fg="#facc15", bg=THEME["bg_statusbar"])
-
-        sched_type = self.sched_var.get()
-        quantum = self.quantum_var.get()
-        memory_cap = self.memory_var.get()
-        num_cores = max(1, self.cores_var.get())
-        overhead = max(0, self.overhead_var.get())
-
-        self.controller = SimulationController(
-            sched_type, quantum, memory_cap, num_cores, overhead
-        )
-        self.controller.on_simulation_end = self.on_simulation_end
-
-        for item in self.tree.get_children():
-            values = self.tree.item(item, 'values')
-            pid = int(values[0])
-            burst = int(values[1])
-            mem = int(values[2])
-            pri = int(values[3])
-            arrival = int(values[4]) if len(values) > 4 else 0
-            io_time = int(values[5]) if len(values) > 5 else 0
-            self.controller.add_process(pid, burst, mem, pri, arrival, io_time)
 
         sim_thread = threading.Thread(target=self._run_simulation_thread)
         sim_thread.start()
@@ -575,7 +563,7 @@ class OSSimulatorGUI:
             self.root.after(0, self.on_simulation_end, stats)
         except Exception as e:
             logging.exception("Simulation crashed")
-            self.root.after(0, self._reset_ui_after_error, str(e))
+            self.root.after(0, self._reset_ui_after_error, f"{type(e).__name__}: {e}")
     
     def on_simulation_end(self, stats: dict) -> None:
         """Callback que se ejecuta al terminar la simulación: muestra resultados, memoria y re-activa la UI."""
@@ -664,159 +652,6 @@ class OSSimulatorGUI:
         for item in self.process_metrics_tree.get_children():
             self.process_metrics_tree.delete(item)
 
-    def _toggle_theme(self) -> None:
-        """Alterna entre tema claro y oscuro.
-
-        Cambia el diccionario THEME en el módulo y reconfigura los
-        colores de todos los widgets visibles para reflejar el nuevo
-        tema. El estado del toggle se persiste en self._dark_mode
-        durante la sesión.
-        """
-        self._dark_mode = not self._dark_mode
-        new = DARK_THEME if self._dark_mode else LIGHT_THEME
-        THEME.update(new)
-        self._apply_theme()
-
-    def _apply_theme(self) -> None:
-        """Reaplica el tema activo a TODA la jerarquía de widgets.
-
-        Camina recursivamente todos los hijos del root y actualiza
-        colores según el tipo de widget: frames, labels, entries,
-        botones de acción y áreas de texto. El objetivo es que no
-        quede ningún elemento con colores del tema anterior, imitando
-        el comportamiento de un cambio de tema completo como en Chrome.
-        """
-        self.root.configure(bg=THEME["bg_primary"])
-
-        # ─── 1. Barra de estado ──────────────────────────────────────
-        self.status_bar.configure(bg=THEME["bg_statusbar"])
-        self.status_label.configure(bg=THEME["bg_statusbar"], fg=THEME["text_on_dark"])
-        self.proc_count_label.configure(bg=THEME["bg_statusbar"], fg=THEME["text_on_dark"])
-        theme_icon = "☾" if self._dark_mode else "☀"
-        self.theme_btn.configure(
-            text=f"{theme_icon} Light / Dark",
-            bg=THEME["toggle_bg"], fg=THEME["toggle_fg"],
-            activebackground=THEME["toggle_active"],
-        )
-
-        # ─── 2. Botones principales ──────────────────────────────────
-        self.start_button.configure(bg=THEME["bg_button_primary"])
-        self.clear_btn.configure(bg=THEME["bg_button_secondary"])
-
-        # ─── 3. Widgets de texto (log, memoria, estadisticas) ────────
-        self.log_text.configure(bg=THEME["log_bg"], fg=THEME["log_fg"])
-        self.memory_text.configure(bg=THEME["log_bg"], fg=THEME["log_fg"])
-        self.stats_text.configure(bg=THEME["stats_bg"], fg=THEME["stats_fg"])
-
-        # ─── 4. Estilos ttk (Treeview, Combobox) ─────────────────────
-        style = ttk.Style()
-        style.configure(
-            "Treeview",
-            background=THEME["bg_input"],
-            foreground=THEME["text_primary"],
-            fieldbackground=THEME["bg_input"],
-        )
-        style.configure(
-            "Treeview.Heading",
-            background=THEME["bg_primary"],
-            foreground=THEME["text_secondary"],
-        )
-        style.map("Treeview.Heading", background=[("active", THEME["border"])])
-        style.map("Treeview", background=[("selected", THEME["accent"])])
-        style.configure(
-            "TCombobox",
-            fieldbackground=THEME["bg_input"],
-            foreground=THEME["text_primary"],
-            arrowcolor=THEME["text_secondary"],
-        )
-
-        # ─── 5. Pase recursivo por toda la ventana ───────────────────
-        self._walk_and_theme(self.root)
-
-    def _walk_and_theme(self, parent: tk.Widget) -> None:
-        """Camina recursivamente los hijos de un widget y aplica el tema.
-
-        Args:
-            parent: Widget raíz cuyos hijos se recorrerán.
-        """
-        for child in parent.winfo_children():
-            self._theme_widget(child)
-            self._walk_and_theme(child)
-
-    def _theme_widget(self, widget: tk.Widget) -> None:
-        """Aplica colores del tema activo a un widget según su tipo.
-
-        La función inspecciona la clase del widget y decide qué
-        atributos de color actualizar. Los widgets ya configurados
-        manualmente en _apply_theme() (statusbar, botones ppales,
-        textos) se saltan para no pisar sus colores específicos.
-
-        Heurística de frames:
-        - Los frames hijo directo del root se dejan con bg_primary
-          (área de fondo general).
-        - Los frames anidados más profundo se asignan a bg_secondary
-          (contenido de tarjetas y paneles).
-
-        Args:
-            widget: Widget a tematizar.
-        """
-        widget_class = widget.winfo_class()
-
-        if widget_class == "Frame":
-            if widget is self.status_bar:
-                return
-            parent = widget.nametowidget(widget.winfo_parent())
-            if parent is self.root:
-                widget.configure(bg=THEME["bg_primary"])
-            else:
-                widget.configure(bg=THEME["bg_secondary"])
-
-        elif widget_class == "Label":
-            current_bg = widget.cget("bg")
-            if current_bg not in (THEME["bg_statusbar"],):
-                widget.configure(bg=THEME["bg_secondary"], fg=THEME["text_primary"])
-
-        elif widget_class == "Entry":
-            widget.configure(
-                bg=THEME["bg_input"], fg=THEME["text_primary"],
-                insertbackground=THEME["text_primary"],
-            )
-
-        elif widget_class == "Button":
-            current_bg = widget.cget("bg")
-            light_button_bgs = {
-                LIGHT_THEME["bg_button_primary"],
-                LIGHT_THEME["bg_button_secondary"],
-                LIGHT_THEME["bg_button_danger"],
-            }
-            dark_button_bgs = {
-                DARK_THEME["bg_button_primary"],
-                DARK_THEME["bg_button_secondary"],
-                DARK_THEME["bg_button_danger"],
-            }
-            if current_bg in light_button_bgs:
-                dark_map = {
-                    LIGHT_THEME["bg_button_primary"]: DARK_THEME["bg_button_primary"],
-                    LIGHT_THEME["bg_button_secondary"]: DARK_THEME["bg_button_secondary"],
-                    LIGHT_THEME["bg_button_danger"]: DARK_THEME["bg_button_danger"],
-                }
-                new_bg = dark_map.get(current_bg, current_bg)
-                widget.configure(bg=new_bg)
-            elif current_bg in dark_button_bgs:
-                light_map = {
-                    DARK_THEME["bg_button_primary"]: LIGHT_THEME["bg_button_primary"],
-                    DARK_THEME["bg_button_secondary"]: LIGHT_THEME["bg_button_secondary"],
-                    DARK_THEME["bg_button_danger"]: LIGHT_THEME["bg_button_danger"],
-                }
-                new_bg = light_map.get(current_bg, current_bg)
-                widget.configure(bg=new_bg)
-
-        elif widget_class == "PanedWindow":
-            widget.configure(bg=THEME["border"], sashwidth=4)
-
-        elif widget_class in ("Text", "ScrolledText"):
-            pass
-
     def _reset_processes(self) -> None:
         """Reemplaza la tabla de procesos con los procesos de ejemplo."""
         for item in self.tree.get_children():
@@ -896,6 +731,66 @@ class OSSimulatorGUI:
     def get_process_count(self):
         """Retorna el número actual de procesos en la tabla."""
         return len(self.tree.get_children())
+    
+    # agregaremos una funcion que permita al usuario cambiar el tema del proyecto a oscuro o claro
+
+
+
+
+
+from tkinter import ttk 
+import json
+import os
+class ThemeManager:
+    # gestiona los temas claro y oscuro
+
+    def __init__(self):
+        self.Thema_actual = self.save_Theme
+        self.themes = {
+            'claro': {
+                'bg': '#ffffff',
+                'fg': '#000000',
+                'bg_boton': '#e0e0e0',
+                'fg_boton': '#000000'
+            },
+            'oscuro': {
+                'bg': '#1e1e1e',
+                'fg': '#ffffff',
+                'bg_boton': '#333333',
+                'fg_boton': '#ffffff'
+            }
+        }
+
+    def saving_Theme(self) -> str:
+        # Carga el tema guardado o usa claro por defecto
+
+        try: 
+            if os.path.exists('config.json'):
+                with open('config.json', 'r') as f:
+                    config = json.load(f)
+                    return config.get('theme', 'claro')
+        except:
+            pass
+        return 'claro'
+
+    def save_Theme(self, theme: str) -> None:
+        # guardar el tema elegido
+
+        with open('config.json', 'w') as f:
+            json.dumb({'theme': theme}, f)
+    
+    def change_Theme(self) -> str:
+        self.Thema_actual = 'oscuro' if self.Thema_actual == 'claro' else 'claro'
+        self.save_Theme(self.Thema_actual)
+        return self.Thema_actual
+    
+    def get_colors(self) -> dict:
+        # retorna los colores del thema actual
+        return self.themes[self.Thema_actual]
+    
+    def es_oscuro(self) -> bool:
+        return self.Thema_actual == 'oscuro'
+
 
 
 

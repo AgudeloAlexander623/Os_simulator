@@ -65,6 +65,12 @@ class CoreWorker(threading.Thread):
                 process = self.scheduler.get_process()
 
             if process:
+                # Si el proceso vuelve de I/O, avanzar el reloj el tiempo
+                # que estuvo bloqueado (otros procesos se ejecutaron mientras).
+                if process.io_elapsed > 0:
+                    self.current_time += process.io_elapsed
+                    process.io_elapsed = 0
+
                 # Aplicar context switch overhead (excepto en la primera ejecución del core)
                 if self.current_time > 0 and self.context_switch_overhead > 0:
                     self.current_time += self.context_switch_overhead
@@ -104,8 +110,10 @@ class CoreWorker(threading.Thread):
                     logging.info(
                         f"[{self.name}] PID={process.pid} bloqueado por I/O durante {io_time} unidades"
                     )
-                    self.current_time += io_time
-                    process.state = ProcessState.READY
+                    # El proceso se bloquea realmente: pasa a la cola de I/O y NO se
+                    # avanza el reloj. El scheduler lo devolverá solo cuando
+                    # io_block_remaining llegue a 0. Mientras tanto otros procesos
+                    # pueden ejecutarse en este core.
                     with scheduler_lock:
                         self.scheduler.add_to_io_queue(process)
                 elif process.state == ProcessState.READY:
