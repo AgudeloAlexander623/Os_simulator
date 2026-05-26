@@ -59,7 +59,7 @@ class CoreWorker(threading.Thread):
             with scheduler_lock:
                 # Verificar si podemos terminar
                 all_submitted = self.scheduler.submission_complete.is_set()
-                nothing_pending = not self.scheduler.has_processes()
+                nothing_pending = not self.scheduler.has_active_processes()
                 if all_submitted and nothing_pending:
                     break
                 process = self.scheduler.get_process()

@@ -15,10 +15,11 @@ import time
 from typing import List, Callable
 from core.process import Process
 from core.scheduler import Scheduler, FCFSScheduler, SJFScheduler, PriorityScheduler, RoundRobinScheduler
-from core.memory import Memory
+from core.memory import Memory, MemoryInsufficientError
 from core.filesystem import FileSystem
 from utils import config
 from concurrency.worker import CoreWorker
+from concurrency.lock import memory_lock
 from utils.gantt import GanttChart
 
 
@@ -96,88 +97,111 @@ class SimulationController:
         return found
 
     def start_simulation(self) -> dict:
+        """Ejecuta la simulación completa.
+
+        A diferencia de la versión anterior, la memoria se asigna en
+        el momento de llegada del proceso, no al inicio. Esto evita
+        que procesos con arrival > 0 ocupen memoria antes de tiempo
+        y bloqueen injustamente a otros procesos.
+
+        Returns:
+            dict: Estadísticas de la simulación.
+        """
         loaded_processes = []
 
-        # Crear directorio raíz para procesos en el filesystem
         self.filesystem.mkdir("/processes")
 
-        # Ordenar procesos por arrival_time
         sorted_processes = sorted(self.processes, key=lambda p: p.arrival_time)
 
-        # Agregar todos los procesos a memoria y crear su directorio en el FS
+        # Primera pasada: crear directorios en el FS para todos los procesos.
+        # La memoria NO se asigna aún: se hará en el momento de llegada.
         for p in sorted_processes:
-            try:
-                self.memory.allocate(p)
-                # Cada proceso tiene su propio directorio y un log inicial
-                proc_dir = f"/processes/P{p.pid}"
-                self.filesystem.mkdir(proc_dir, pid=p.pid)
-                self.filesystem.create_file(
-                    f"{proc_dir}/status.log",
-                    f"PID={p.pid} | Burst={p.burst_time} | Memory={p.memory} | Priority={p.priority} | Arrival={p.arrival_time}",
-                    pid=p.pid,
-                )
-                loaded_processes.append(p)
-                logging.info(f"[FS] Directorio creado para PID={p.pid}")
-            except Exception as e:
-                logging.warning(f"Error al cargar proceso {p.pid}: {e}")
+            proc_dir = f"/processes/P{p.pid}"
+            self.filesystem.mkdir(proc_dir, pid=p.pid)
+            self.filesystem.create_file(
+                f"{proc_dir}/status.log",
+                f"PID={p.pid} | Burst={p.burst_time} | Memory={p.memory} | Priority={p.priority} | Arrival={p.arrival_time}",
+                pid=p.pid,
+            )
+            loaded_processes.append(p)
+            logging.info(f"[FS] Directorio creado para PID={p.pid}")
 
-        # Agregar procesos con arrival_time=0 al scheduler
+        # Segunda pasada: asignar memoria y encolar procesos con arrival=0
         for p in loaded_processes:
             if p.arrival_time == 0:
-                self.scheduler.add_process(p)
-                logging.info(f"[Controller] PID={p.pid} llegó en t=0")
+                try:
+                    self.memory.allocate(p)
+                    self.scheduler.add_process(p)
+                    logging.info(f"[Controller] PID={p.pid} llegó en t=0")
+                except MemoryInsufficientError:
+                    logging.warning(
+                        f"[Controller] Memoria insuficiente para PID={p.pid} en t=0"
+                    )
 
-        # Crear workers
         gantt = GanttChart()
         cores = [
-            CoreWorker(self.scheduler, self.memory, self.context_switch_overhead, core_id=i, gantt_chart=gantt)
+            CoreWorker(
+                self.scheduler, self.memory,
+                self.context_switch_overhead,
+                core_id=i, gantt_chart=gantt,
+            )
             for i in range(self.num_cores)
         ]
 
-        # Thread para agregar procesos escalonados
         staggered = [p for p in loaded_processes if p.arrival_time > 0]
         if staggered:
-            # Resetear el evento: aún llegan procesos
             self.scheduler.submission_complete.clear()
 
             def submit_staggered():
                 for p in staggered:
                     time.sleep(p.arrival_time * 0.01)
+                    with memory_lock:
+                        try:
+                            self.memory.allocate(p)
+                        except MemoryInsufficientError:
+                            logging.warning(
+                                f"[Controller] Memoria insuficiente para "
+                                f"PID={p.pid} en t={p.arrival_time}"
+                            )
+                            continue
                     self.scheduler.add_process(p)
-                    logging.info(f"[Controller] PID={p.pid} llegó en t={p.arrival_time}")
-                # Señalar que ya no llegarán más procesos
+                    logging.info(
+                        f"[Controller] PID={p.pid} llegó en t={p.arrival_time}"
+                    )
                 self.scheduler.submission_complete.set()
 
             submitter = threading.Thread(target=submit_staggered)
             submitter.start()
 
-        # Iniciar workers
         for core in cores:
             core.start()
 
-        # Esperar a que terminen
         if staggered:
             submitter.join()
         for core in cores:
             core.join()
 
-        # Tiempo real de simulación: máximo completion_time entre procesos completados
         completed_processes = [p for p in loaded_processes if p.completion_time != -1]
         completed = len(completed_processes)
-        total_time = max(p.completion_time for p in completed_processes) if completed_processes else 0
+        total_time = (
+            max(p.completion_time for p in completed_processes)
+            if completed_processes else 0
+        )
         throughput = completed / total_time if total_time > 0 else 0
 
-        # Calcular métricas promedio
         if completed_processes:
             avg_waiting = sum(p.waiting_time for p in completed_processes) / completed
-            avg_turnaround = sum(p.turnaround_time for p in completed_processes) / completed
+            avg_turnaround = (
+                sum(p.turnaround_time for p in completed_processes) / completed
+            )
             avg_response = sum(p.response_time for p in completed_processes) / completed
         else:
             avg_waiting = avg_turnaround = avg_response = 0
 
-        # CPU utilization (tiempo total ejecutado / (tiempo simulado * num_cores))
         total_burst = sum(p.burst_time for p in loaded_processes)
-        cpu_utilization = total_burst / (total_time * self.num_cores) if total_time > 0 else 0
+        cpu_utilization = (
+            total_burst / (total_time * self.num_cores) if total_time > 0 else 0
+        )
         cpu_utilization = min(cpu_utilization, 1.0)
 
         total_context_switches = sum(core.get_context_switches() for core in cores)
@@ -195,7 +219,6 @@ class SimulationController:
             for p in loaded_processes
         ]
 
-        # Escribir métricas finales en el filesystem
         for p in loaded_processes:
             if p.completion_time != -1:
                 log_content = (
@@ -207,7 +230,9 @@ class SimulationController:
                     f"Response Time: {p.response_time:.2f}\n"
                     f"Total I/O Time: {p.total_io_time}\n"
                 )
-                self.filesystem.write_file(f"/processes/P{p.pid}/status.log", log_content, pid=p.pid)
+                self.filesystem.write_file(
+                    f"/processes/P{p.pid}/status.log", log_content, pid=p.pid
+                )
 
         stats = {
             "total_time": total_time,

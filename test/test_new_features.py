@@ -324,6 +324,5 @@ class TestIntegrationNewFeatures(unittest.TestCase):
         self.assertGreater(stats["throughput"], 0)
         self.assertGreater(stats["cpu_utilization"], 0)
 
-
 if __name__ == "__main__":
     unittest.main()

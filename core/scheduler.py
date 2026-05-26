@@ -18,16 +18,29 @@ from queue import Queue
 from typing import Optional, TYPE_CHECKING
 import heapq
 import threading
+import logging
 
 if TYPE_CHECKING:
     from core.process import Process
 
+logger = logging.getLogger(__name__)
+
 
 class Scheduler:
-    """Clase base para schedulers de procesos."""
+    """Clase base para schedulers de procesos.
+
+    Gestiona una cola FIFO de procesos listos, una cola separada para
+    procesos que vienen de operaciones de I/O y un mecanismo de
+    cancelación por PID que permite reutilizar el mismo PID más adelante
+    sin bloquear el nuevo proceso.
+    """
 
     def __init__(self, quantum: int):
-        """Inicializa el scheduler."""
+        """Inicializa el scheduler con un quantum dado.
+
+        Args:
+            quantum: Unidades de tiempo por ejecución (0 = FCFS).
+        """
         self.quantum = quantum
         self._queue: Optional[Queue['Process']] = None
         self.io_queue: Queue['Process'] = Queue()
@@ -44,14 +57,64 @@ class Scheduler:
         return self._queue
 
     def add_process(self, process: 'Process') -> None:
+        """Agrega un proceso al scheduler.
+
+        Si el PID estaba previamente cancelado, se limpia esa marca
+        para permitir la reutilización del PID, y se drena cualquier
+        instancia vieja del mismo PID que aún esté en la cola.
+
+        Args:
+            process: Proceso a agregar.
+        """
         with self._count_lock:
             self._active_count += 1
+
+        if process.pid in self._cancelled_pids:
+            self._cancelled_pids.discard(process.pid)
+            self._drain_pid_from_queue(process.pid)
+
         self.enqueue(process)
 
+    def _drain_pid_from_queue(self, pid: int) -> None:
+        """Elimina todas las instancias viejas de un PID de la cola de listos.
+
+        Es necesario cuando se reutiliza un PID: las instancias viejas
+        del proceso cancelado aún pueden estar en la cola, y al drenarlas
+        nos aseguramos de que no sean despachadas en lugar del nuevo proceso.
+
+        Args:
+            pid: PID a eliminar de la cola.
+        """
+        if self._queue is None:
+            return
+        remaining = []
+        while not self._queue.empty():
+            p = self._queue.get()
+            if p.pid == pid:
+                with self._count_lock:
+                    self._active_count -= 1
+            else:
+                remaining.append(p)
+        for p in remaining:
+            self._queue.put(p)
+
     def enqueue(self, process: 'Process') -> None:
+        """Encola un proceso en la cola de listos.
+
+        Args:
+            process: Proceso a encolar.
+        """
         self.queue.put(process)
 
     def _get_from_queue(self) -> Optional['Process']:
+        """Obtiene el siguiente proceso de la cola de listos.
+
+        Salta aquellos procesos cuyo PID esté en el conjunto de
+        cancelados y descuenta su conteo activo.
+
+        Returns:
+            Proceso siguiente o None si la cola está vacía.
+        """
         while self._queue is not None and not self._queue.empty():
             p = self._queue.get()
             if p.pid not in self._cancelled_pids:
@@ -61,6 +124,14 @@ class Scheduler:
         return None
 
     def _get_from_io(self) -> Optional['Process']:
+        """Obtiene el siguiente proceso de la cola de I/O.
+
+        Similar a _get_from_queue pero para procesos que vuelven de
+        operaciones de I/O.
+
+        Returns:
+            Proceso siguiente o None si la cola está vacía.
+        """
         while not self.io_queue.empty():
             p = self.io_queue.get()
             if p.pid not in self._cancelled_pids:
@@ -70,39 +141,90 @@ class Scheduler:
         return None
 
     def get_process(self) -> Optional['Process']:
+        """Obtiene el siguiente proceso a ejecutar.
+
+        Primero revisa la cola de I/O (los procesos bloqueados tienen
+        prioridad), luego la cola de listos.
+
+        Returns:
+            Proceso a ejecutar o None si no hay procesos disponibles.
+        """
         p = self._get_from_io()
         if p is not None:
             return p
         return self._get_from_queue()
 
     def has_processes(self) -> bool:
+        """Indica si hay procesos en alguna de las colas (listos o I/O).
+
+        Returns:
+            True si al menos una cola tiene elementos.
+        """
         if self._queue is None:
             return not self.io_queue.empty()
         return not self._queue.empty() or not self.io_queue.empty()
 
     def mark_terminated(self) -> None:
+        """Marca un proceso como terminado, decrementando el conteo activo."""
         with self._count_lock:
             self._active_count -= 1
 
     def has_active_processes(self) -> bool:
+        """Indica si hay procesos activos (encolados + en ejecución).
+
+        Returns:
+            True si _active_count > 0.
+        """
         with self._count_lock:
             return self._active_count > 0
 
     def add_to_io_queue(self, process: 'Process') -> None:
+        """Envía un proceso a la cola de I/O.
+
+        Args:
+            process: Proceso que se bloquea por I/O.
+        """
         self.io_queue.put(process)
 
     def has_io_processes(self) -> bool:
+        """Indica si hay procesos esperando en la cola de I/O.
+
+        Returns:
+            True si la cola de I/O tiene elementos.
+        """
         return not self.io_queue.empty()
 
     def remove_process(self, pid: int) -> bool:
+        """Cancela un proceso por su PID.
+
+        No utiliza señales reales del SO (como os.kill), sino un
+        mecanismo interno de cancelación: el PID se agrega a un
+        conjunto de cancelados, y al momento de despachar desde las
+        colas se salta cualquier proceso con ese PID.
+
+        Si el PID ya estaba cancelado, retorna False.
+
+        Args:
+            pid: PID del proceso a cancelar.
+
+        Returns:
+            True si se marcó como cancelado, False si ya lo estaba.
+        """
+        if pid <= 0:
+            raise ValueError(f"PID invalido para cancelar: {pid}")
+
         if pid in self._cancelled_pids:
+            logger.warning(f"PID {pid} ya esta marcado como cancelado")
             return False
+
         self._cancelled_pids.add(pid)
+        logger.info(f"PID {pid} marcado como cancelado")
         return True
 
 
 class FCFSScheduler(Scheduler):
     """First-Come, First-Served: Procesa en orden de llegada, sin quantum."""
+
     def __init__(self):
         super().__init__(quantum=0)
 
@@ -118,6 +240,10 @@ class SJFScheduler(Scheduler):
     def add_process(self, process: 'Process') -> None:
         with self._count_lock:
             self._active_count += 1
+
+        if process.pid in self._cancelled_pids:
+            self._cancelled_pids.discard(process.pid)
+
         self.enqueue(process)
 
     def enqueue(self, process: 'Process') -> None:
@@ -163,6 +289,10 @@ class PriorityScheduler(Scheduler):
     def add_process(self, process: 'Process') -> None:
         with self._count_lock:
             self._active_count += 1
+
+        if process.pid in self._cancelled_pids:
+            self._cancelled_pids.discard(process.pid)
+
         self.enqueue(process)
 
     def enqueue(self, process: 'Process') -> None:
@@ -203,7 +333,8 @@ class PriorityScheduler(Scheduler):
             self._cancelled_pids.add(pid)
             return True
         return super().remove_process(pid)
-        
+
+
 class RoundRobinScheduler(Scheduler):
     """Round-Robin: Quantum fijo, como el original."""
     pass
